@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coin Flip Game</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Heads or Tails</h1>
+        <div class="round-info">Round: <span id="round">1</span></div>
+        <div class="coin" id="coin">?</div>
+        
+        <div class="bet-section">
+            <input type="number" id="betAmount" placeholder="Enter Amount" min="10">
+            <div class="btn-group">
+                <button class="btn heads" onclick="placeBet('HEADS')">Bet HEADS</button>
+                <button class="btn tails" onclick="placeBet('TAILS')">Bet TAILS</button>
+            </div>
+        </div>
+
+        <div id="statusMessage"></div>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>
+
