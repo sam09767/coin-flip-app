@@ -3,25 +3,183 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Coin Flip Game</title>
+    <title>Royal Casino - Complete Admin & Wallet Engine</title>
     <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.5.1/dist/confetti.browser.min.js"></script>
 </head>
 <body>
-    <div class="container">
-        <h1>Heads or Tails</h1>
-        <div class="round-info">Round: <span id="round">1</span></div>
-        <div class="coin" id="coin">?</div>
-        
-        <div class="bet-section">
-            <input type="number" id="betAmount" placeholder="Enter Amount" min="10">
-            <div class="btn-group">
-                <button class="btn heads" onclick="placeBet('HEADS')">Bet HEADS</button>
-                <button class="btn tails" onclick="placeBet('TAILS')">Bet TAILS</button>
+    <div class="casino-wrapper">
+        <header class="casino-header">
+            <div class="brand" id="adminTrigger" onclick="handleSecureAdminTrigger()">👑 ROYAL FLIP</div>
+            <div class="live-status">
+                <span class="pulse"></span> <span id="onlineCount">0</span> Live
+            </div>
+            <div class="wallet">
+                <span class="chip-icon">💎</span>
+                <span class="balance">₹<strong id="balance">1000</strong></span>
+            </div>
+        </header>
+
+        <div class="round-card">
+            <div class="round-badge">ROUND #<span id="round">1</span></div>
+            <div class="timer-box">
+                <small>IST SPIN TIMER</small>
+                <div><span id="timer">30.0</span>s</div>
+            </div>
+            <div class="streak-badge">STREAK: <span id="streak">0</span>🔥</div>
+        </div>
+
+        <div class="ist-clock-banner">
+            IST TIME: <span id="istClock">--:--:--.-- PM</span>
+        </div>
+
+        <div class="coin-arena">
+            <div class="coin-glow"></div>
+            <div class="coin" id="coin">
+                <div class="side heads-side"><span>H</span></div>
+                <div class="side tails-side"><span>T</span></div>
+            </div>
+        </div>
+        <div id="resultText" class="result-display">Place your bets before timer ends!</div>
+
+        <div class="bet-panel">
+            <div class="input-container">
+                <span class="currency">₹</span>
+                <input type="number" id="betAmount" placeholder="Enter Bet Amount" min="10" step="10">
+            </div>
+
+            <div class="preset-row">
+                <button onclick="setBetAmount(50)">+50</button>
+                <button onclick="setBetAmount(100)">+100</button>
+                <button onclick="setBetAmount(500)">+500</button>
+                <button onclick="setBetAmount('max')">MAX</button>
+            </div>
+
+            <div class="choice-row">
+                <button class="btn btn-heads" id="btnHeads" onclick="placeBet('HEADS')">
+                    <span class="label">HEADS</span>
+                    <span class="odds">2.0x</span>
+                </button>
+                <button class="btn btn-tails" id="btnTails" onclick="placeBet('TAILS')">
+                    <span class="label">TAILS</span>
+                    <span class="odds">2.0x</span>
+                </button>
+            </div>
+
+            <!-- User Withdrawal Section -->
+            <div class="withdraw-section">
+                <input type="text" id="withdrawUpi" placeholder="Enter UPI ID (e.g. user@paytm)">
+                <input type="number" id="withdrawAmt" placeholder="Withdrawal Amount">
+                <button class="action-btn success" onclick="requestWithdrawal()">Request Cashout</button>
             </div>
         </div>
 
-        <div id="statusMessage"></div>
+        <div id="statusMessage" class="status-msg"></div>
+
+        <div class="live-feed-section">
+            <div class="feed-header">Live Bets This Round</div>
+            <div class="feed-list" id="feedList"></div>
+        </div>
+
+        <div class="history-card">
+            <span>RECENT:</span>
+            <div class="chips-row" id="historyChips"></div>
+        </div>
     </div>
+
+    <!-- Modals -->
+    <div id="winModal" class="modal">
+        <div class="modal-box">
+            <h2 id="modalTitle">BIG WIN!</h2>
+            <p id="modalDesc">+₹0</p>
+        </div>
+    </div>
+
+    <div id="authModal" class="admin-modal">
+        <div class="admin-box auth-box">
+            <div class="admin-header">
+                <h3>🔒 MASTER SECURITY LOCK</h3>
+                <span class="close-admin" onclick="closeAuthModal()">&times;</span>
+            </div>
+            <p class="auth-desc">Enter Security PIN:</p>
+            <input type="password" id="adminPasscode" class="pin-input" placeholder="****" maxlength="8">
+            <div id="authError" class="auth-err"></div>
+            <button class="action-btn success" onclick="authenticateAdmin()">UNLOCK PANEL</button>
+        </div>
+    </div>
+
+    <!-- Expanded Admin Master Panel -->
+    <div id="adminModal" class="admin-modal">
+        <div class="admin-box full-admin">
+            <div class="admin-header">
+                <h3>👑 SUPREME ADMIN CONTROL CENTER</h3>
+                <span class="close-admin" onclick="closeAdminPanel()">&times;</span>
+            </div>
+
+            <!-- Global Live Statistics -->
+            <div class="admin-section">
+                <h4>📊 System Live Analytics</h4>
+                <div class="ledger-grid">
+                    <div class="ledger-item">Total Users: <strong id="admTotalUsers">0</strong></div>
+                    <div class="ledger-item">Active Users: <strong id="admActiveUsers">0</strong></div>
+                    <div class="ledger-item">Total Turnover: <strong id="admTotalVolume">₹0</strong></div>
+                    <div class="ledger-item">House Profit: <strong id="admHouseProfit">₹0</strong></div>
+                    <div class="ledger-item">Pending Payouts: <strong id="admPendingPayouts" style="color:#f59e0b;">₹0</strong></div>
+                    <div class="ledger-item">Mode: <strong id="admCurrentMode">AUTO</strong></div>
+                </div>
+            </div>
+
+            <!-- Direct Wallet Control Panel -->
+            <div class="admin-section">
+                <h4>💳 Target User Wallet Manager</h4>
+                <div class="admin-input-group">
+                    <select id="admUserSelect" onchange="loadTargetUserData()"></select>
+                    <input type="number" id="admWalletAmount" placeholder="Enter Custom Balance (₹)">
+                    <div class="admin-btn-group">
+                        <button class="action-btn success" onclick="adminModifyWallet('SET')">Set Exact</button>
+                        <button class="action-btn" onclick="adminModifyWallet('ADD')">+ Add</button>
+                        <button class="action-btn danger" onclick="adminModifyWallet('SUB')">- Deduct</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Force Outcome System -->
+            <div class="admin-section">
+                <h4>🎯 Result Rigging Mode</h4>
+                <div class="admin-btn-group">
+                    <button class="admin-btn mode-auto" id="btnAuto" onclick="setForceOutcome('AUTO')">AUTO (Fair)</button>
+                    <button class="admin-btn mode-heads" id="btnForceHeads" onclick="setForceOutcome('HEADS')">FORCE HEADS</button>
+                    <button class="admin-btn mode-tails" id="btnForceTails" onclick="setForceOutcome('TAILS')">FORCE TAILS</button>
+                </div>
+            </div>
+
+            <!-- Withdrawal Approval List -->
+            <div class="admin-section">
+                <h4>💸 Pending Withdrawal Requests</h4>
+                <div class="payout-list" id="admPayoutList">
+                    <p style="font-size:0.75rem; color:#64748b;">No pending requests</p>
+                </div>
+            </div>
+
+            <!-- Danger Zone Controls -->
+            <div class="admin-section">
+                <h4>⚙️ Database Controls</h4>
+                <div class="admin-btn-group">
+                    <button class="action-btn" onclick="adminCreateDummyUsers()">+ Generate Users</button>
+                    <button class="action-btn danger" onclick="adminResetStats()">Wipe All Data</button>
+                </div>
+            </div>
+
+            <!-- Audit Trail -->
+            <div class="admin-section">
+                <h4>📜 Audit Trail</h4>
+                <div class="admin-logs" id="adminLogs"></div>
+            </div>
+
+            <button class="action-btn danger style-lock" onclick="lockAdminSession()">🔒 LOCK SESSION</button>
+        </div>
+    </div>
+
     <script src="app.js"></script>
 </body>
 </html>
