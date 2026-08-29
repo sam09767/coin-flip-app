@@ -11,7 +11,12 @@ app.use(express.static('public'));
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
-// Server-Side Master State
+// SECRET ADMIN PASSWORD
+const ADMIN_SECRET = process.env.ADMIN_PASSWORD || "ADMIN@9988";
+
+// Active socket connection tracking
+const onlineUsers = new Map(); // socket.id -> username
+
 let globalState = {
     adminUpi: "ishaquehaque107@okaxis",
     forceMode: "AUTO", // AUTO, HEADS, TAILS
@@ -25,13 +30,12 @@ let globalState = {
 
 let lastExecutedRound = -1;
 
-// Central High-Precision Real-Time Game Loop (Synced with India IST Time)
+// Central Game Loop (30 Second Timer)
 setInterval(() => {
     const epochMs = Date.now();
     const roundId = Math.floor(epochMs / 30000);
     const msRemaining = 30000 - (epochMs % 30000);
 
-    // Exact Indian Standard Time (IST) Format
     const nowIST = new Date(epochMs + (5.5 * 60 * 60 * 1000));
     const hours = String(nowIST.getUTCHours() % 12 || 12).padStart(2, '0');
     const minutes = String(nowIST.getUTCMinutes()).padStart(2, '0');
@@ -48,7 +52,6 @@ setInterval(() => {
         istTime: formattedIst
     });
 
-    // Execute Spin at exactly 0.2s remaining
     if (msRemaining <= 200 && lastExecutedRound !== roundId) {
         lastExecutedRound = roundId;
         executeGlobalSpin(roundId);
@@ -71,21 +74,24 @@ function executeGlobalSpin(roundId) {
         const user = globalState.users[username];
         if (user && user.currentBet) {
             globalState.totalVolume += user.currentBet.amount;
+            
             if (user.currentBet.choice === outcome) {
-                const winAmount = user.currentBet.amount * 2;
-                user.balance += winAmount;
+                // WIN: Give back original bet + win profit (2x total)
+                const winPayout = user.currentBet.amount * 2;
+                user.balance += winPayout;
                 user.streak += 1;
                 globalState.houseProfit -= user.currentBet.amount;
             } else {
+                // LOSS: Balance was already deducted during bet placement
                 user.streak = 0;
                 globalState.houseProfit += user.currentBet.amount;
             }
+            
             user.currentBet = null;
             io.to(`user_${username}`).emit('user_sync', user);
         }
     });
 
-    // Clear active bets feed after round finishes
     globalState.recentBetsFeed = [];
 
     io.emit('round_result', {
@@ -97,27 +103,37 @@ function executeGlobalSpin(roundId) {
 }
 
 function getAdminState() {
+    const activeUsersList = Object.keys(globalState.users).map(uname => {
+        const u = globalState.users[uname];
+        const isOnline = Array.from(onlineUsers.values()).includes(uname);
+        return {
+            username: u.username,
+            balance: u.balance,
+            streak: u.streak,
+            isOnline: isOnline,
+            activeBet: u.currentBet ? `${u.currentBet.amount} on ${u.currentBet.choice}` : "None"
+        };
+    });
+
     return {
         adminUpi: globalState.adminUpi,
         forceMode: globalState.forceMode,
         totalVolume: globalState.totalVolume,
         houseProfit: globalState.houseProfit,
         totalUsersCount: Object.keys(globalState.users).length,
-        users: globalState.users,
+        usersList: activeUsersList,
         deposits: globalState.deposits.filter(d => d.status === 'PENDING')
     };
 }
 
-// Socket Communication Layer
 io.on('connection', (socket) => {
     socket.emit('upi_changed', globalState.adminUpi);
     socket.emit('history_update', globalState.history);
     socket.emit('live_bet_feed', globalState.recentBetsFeed);
 
-    // User Authentication across multi-devices
     socket.on('user_login', ({ username, password, isSignUp }, callback) => {
         if (!username || !password) {
-            return callback({ success: false, msg: "Username aur Password dono required hain!" });
+            return callback({ success: false, msg: "Username aur Password required hain!" });
         }
 
         const cleanUsername = username.trim().toLowerCase();
@@ -129,7 +145,7 @@ io.on('connection', (socket) => {
             globalState.users[cleanUsername] = {
                 username: cleanUsername,
                 password: password,
-                balance: 100, // Initial Signup Bonus
+                balance: 100, // Signup Bonus
                 streak: 0,
                 currentBet: null
             };
@@ -140,6 +156,8 @@ io.on('connection', (socket) => {
         }
 
         socket.join(`user_${cleanUsername}`);
+        onlineUsers.set(socket.id, cleanUsername);
+
         callback({
             success: true,
             userData: globalState.users[cleanUsername],
@@ -149,7 +167,6 @@ io.on('connection', (socket) => {
         io.emit('admin_state_update', getAdminState());
     });
 
-    // Place Bet Logic
     socket.on('place_bet', ({ username, choice, amount }, callback) => {
         const cleanUsername = username.trim().toLowerCase();
         const user = globalState.users[cleanUsername];
@@ -159,21 +176,20 @@ io.on('connection', (socket) => {
         if (!amount || amount < 10) return callback({ success: false, msg: "Minimum bet amount ₹10 hai!" });
         if (amount > user.balance) return callback({ success: false, msg: "Insufficient Wallet Balance!" });
 
-        user.balance -= amount;
-        user.currentBet = { choice, amount };
+        user.balance -= Number(amount);
+        user.currentBet = { choice, amount: Number(amount) };
 
-        // Broadcast to Live Bet Marquee Feed
         const feedEntry = `${cleanUsername.toUpperCase()}: ₹${amount} on ${choice}`;
         globalState.recentBetsFeed.push(feedEntry);
         if (globalState.recentBetsFeed.length > 8) globalState.recentBetsFeed.shift();
-        io.emit('live_bet_feed', globalState.recentBetsFeed);
 
+        io.emit('live_bet_feed', globalState.recentBetsFeed);
         io.to(`user_${cleanUsername}`).emit('user_sync', user);
         io.emit('admin_state_update', getAdminState());
+
         callback({ success: true, msg: `₹${amount} bet ${choice} par lag gayi!` });
     });
 
-    // Deposit Request Logic
     socket.on('request_deposit', ({ username, amount, txnId }, callback) => {
         const cleanUsername = username.trim().toLowerCase();
         if (!amount || amount <= 0 || !txnId) {
@@ -191,11 +207,20 @@ io.on('connection', (socket) => {
 
         globalState.deposits.push(newDeposit);
         io.emit('admin_state_update', getAdminState());
-        callback({ success: true, msg: "Deposit Request Submitted! Admin review kar raha hai." });
+        callback({ success: true, msg: "Deposit Request Submitted!" });
     });
 
-    // Developer Admin Controls
-    socket.on('admin_update_upi', ({ newUpi }) => {
+    // SECURE ADMIN CONTROLS
+    socket.on('admin_login', ({ adminPassword }, callback) => {
+        if (adminPassword === ADMIN_SECRET) {
+            callback({ success: true, data: getAdminState() });
+        } else {
+            callback({ success: false, msg: "Incorrect Admin Password!" });
+        }
+    });
+
+    socket.on('admin_update_upi', ({ adminSecret, newUpi }) => {
+        if (adminSecret !== ADMIN_SECRET) return;
         if (newUpi && newUpi.trim() !== "") {
             globalState.adminUpi = newUpi.trim();
             io.emit('upi_changed', globalState.adminUpi);
@@ -203,12 +228,14 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('admin_set_mode', ({ mode }) => {
+    socket.on('admin_set_mode', ({ adminSecret, mode }) => {
+        if (adminSecret !== ADMIN_SECRET) return;
         globalState.forceMode = mode;
         io.emit('admin_state_update', getAdminState());
     });
 
-    socket.on('admin_process_deposit', ({ id, action }) => {
+    socket.on('admin_process_deposit', ({ adminSecret, id, action }) => {
+        if (adminSecret !== ADMIN_SECRET) return;
         const dep = globalState.deposits.find(d => d.id === id);
         if (dep && dep.status === 'PENDING') {
             dep.status = action;
@@ -223,7 +250,8 @@ io.on('connection', (socket) => {
         io.emit('admin_state_update', getAdminState());
     });
 
-    socket.on('admin_modify_wallet', ({ username, amount }) => {
+    socket.on('admin_modify_wallet', ({ adminSecret, username, amount }) => {
+        if (adminSecret !== ADMIN_SECRET) return;
         const cleanUsername = username.trim().toLowerCase();
         const user = globalState.users[cleanUsername];
         if (user) {
@@ -233,8 +261,15 @@ io.on('connection', (socket) => {
         io.emit('admin_state_update', getAdminState());
     });
 
-    socket.on('get_admin_data', (callback) => {
-        callback(getAdminState());
+    socket.on('get_admin_data', ({ adminSecret }, callback) => {
+        if (adminSecret === ADMIN_SECRET && callback) {
+            callback(getAdminState());
+        }
+    });
+
+    socket.on('disconnect', () => {
+        onlineUsers.delete(socket.id);
+        io.emit('admin_state_update', getAdminState());
     });
 });
 
