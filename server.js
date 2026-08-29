@@ -3,6 +3,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
 const mongoose = require('mongoose');
+const nodemailer = require('nodemailer');
 
 const app = express();
 app.use(cors());
@@ -14,6 +15,18 @@ const io = new Server(server, { cors: { origin: "*" } });
 
 const ADMIN_SECRET = process.env.ADMIN_PASSWORD || "ADMIN@9988";
 const MONGO_URI = process.env.MONGO_URI;
+
+// Nodemailer Gmail Transporter Setup
+const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+        user: 'sameerkhanl045632@gmail.com',
+        pass: 'rtkrdhizhcwbsxnl' // Image wala App Password
+    }
+});
+
+// Temporary OTP Storage (Memory Map)
+const otpStore = new Map();
 
 // Connect to MongoDB Atlas Database
 if (!MONGO_URI) {
@@ -28,7 +41,7 @@ if (!MONGO_URI) {
 const UserSchema = new mongoose.Schema({
     username: { type: String, required: true, unique: true },
     password: { type: String, required: true },
-    balance: { type: Number, default: 100 },
+    balance: { type: Number, default: 0 },
     streak: { type: Number, default: 0 }
 });
 
@@ -65,7 +78,7 @@ const Withdrawal = mongoose.model('Withdrawal', WithdrawalSchema);
 const SystemState = mongoose.model('SystemState', SystemStateSchema);
 
 const onlineUsers = new Map();
-const activeBets = new Map(); // Store temporary bets for current round
+const activeBets = new Map();
 let recentBetsFeed = [];
 let lastExecutedRound = -1;
 
@@ -118,7 +131,6 @@ async function executeGlobalSpin(roundId) {
             if (bet.choice === 'TAILS') totalTailsAmount += bet.amount;
         }
 
-        // Outcome logic: Side with LOWEST total bet amount wins
         if (totalHeadsAmount < totalTailsAmount) {
             outcome = 'HEADS';
         } else if (totalTailsAmount < totalHeadsAmount) {
@@ -133,7 +145,6 @@ async function executeGlobalSpin(roundId) {
     config.history.unshift(outcome);
     if (config.history.length > 10) config.history.pop();
 
-    // Settle bets and update MongoDB User balances
     for (let [username, bet] of activeBets.entries()) {
         const user = await User.findOne({ username });
         if (user) {
@@ -209,35 +220,93 @@ io.on('connection', async (socket) => {
     socket.emit('history_update', config.history);
     socket.emit('live_bet_feed', recentBetsFeed);
 
-    socket.on('user_login', async ({ username, password, isSignUp }, callback) => {
+    // Event 1: Send OTP to Gmail
+    socket.on('send_otp', async ({ email }, callback) => {
         if (typeof callback !== 'function') return;
-        if (!username || !password) {
-            return callback({ success: false, msg: "Username aur Password required hain!" });
+        if (!email || !email.includes('@')) {
+            return callback({ success: false, msg: "Sahi Email Address enter karein!" });
         }
 
-        const cleanUsername = String(username).trim().toLowerCase();
-        const cleanPassword = String(password).trim();
+        const cleanEmail = String(email).trim().toLowerCase();
+        const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+        const expiresAt = Date.now() + (5 * 60 * 1000); // 5 Minutes Validity
 
-        let user = await User.findOne({ username: cleanUsername });
+        otpStore.set(cleanEmail, { otp: generatedOtp, expiresAt });
+
+        const mailOptions = {
+            from: '"Coin Flip Live Casino" <sameerkhanl045632@gmail.com>',
+            to: cleanEmail,
+            subject: 'Your Security OTP Code - Coin Flip Casino',
+            html: `
+                <div style="font-family: Arial, sans-serif; padding: 20px; background-color: #0f172a; color: #ffffff; border-radius: 10px; max-width: 500px; margin: auto;">
+                    <h2 style="color: #facc15; text-align: center;">COIN FLIP CASINO</h2>
+                    <p style="font-size: 16px;">Aapka Login/Signup OTP verification code hai:</p>
+                    <div style="background-color: #1e293b; padding: 15px; text-align: center; border-radius: 8px; font-size: 32px; font-weight: bold; color: #22c55e; letter-spacing: 6px; margin: 20px 0;">
+                        ${generatedOtp}
+                    </div>
+                    <p style="font-size: 12px; color: #94a3b8; text-align: center;">Ye OTP 5 minute ke liye valid hai. Kisi ke sath share na karein!</p>
+                </div>
+            `
+        };
+
+        try {
+            await transporter.sendMail(mailOptions);
+            callback({ success: true, msg: "OTP aapke Gmail par bhej diya gaya hai!" });
+        } catch (err) {
+            console.error("❌ Email Send Error:", err);
+            callback({ success: false, msg: "OTP bhejne me dikkat aayi. Email check karein!" });
+        }
+    });
+
+    // Event 2: Verify OTP and Login / Register
+    socket.on('user_login', async ({ username, password, otp, isSignUp }, callback) => {
+        if (typeof callback !== 'function') return;
+        if (!username || !password || !otp) {
+            return callback({ success: false, msg: "Email, Password aur OTP teenon zaroori hain!" });
+        }
+
+        const cleanEmail = String(username).trim().toLowerCase();
+        const cleanPassword = String(password).trim();
+        const cleanOtp = String(otp).trim();
+
+        // Check OTP Verification
+        const storedOtpData = otpStore.get(cleanEmail);
+        if (!storedOtpData) {
+            return callback({ success: false, msg: "Pehle 'Send OTP' button par click karke OTP mangwaye!" });
+        }
+
+        if (Date.now() > storedOtpData.expiresAt) {
+            otpStore.delete(cleanEmail);
+            return callback({ success: false, msg: "OTP expire ho chuka hai! Phir se OTP bhejein." });
+        }
+
+        if (storedOtpData.otp !== cleanOtp) {
+            return callback({ success: false, msg: "Galat OTP enter kiya hai!" });
+        }
+
+        // OTP Verified successfully, clear OTP
+        otpStore.delete(cleanEmail);
+
+        let user = await User.findOne({ username: cleanEmail });
 
         if (isSignUp) {
             if (user) {
-                return callback({ success: false, msg: "Ye Username pehle se maujood hai!" });
+                return callback({ success: false, msg: "Is Email se pehle se account bana hua hai! Directly Login karein." });
             }
             user = await User.create({
-                username: cleanUsername,
+                username: cleanEmail,
                 password: cleanPassword,
-                balance: 100,
+                balance: 0,
                 streak: 0
             });
         } else {
             if (!user || user.password !== cleanPassword) {
-                return callback({ success: false, msg: "Galat Username ya Password!" });
+                return callback({ success: false, msg: "Galat Email ya Password!" });
             }
         }
 
-        socket.join(`user_${cleanUsername}`);
-        onlineUsers.set(socket.id, cleanUsername);
+        socket.join(`user_${cleanEmail}`);
+        onlineUsers.set(socket.id, cleanEmail);
 
         callback({
             success: true,
