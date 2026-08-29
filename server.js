@@ -57,8 +57,31 @@ setInterval(() => {
 
 function executeGlobalSpin(roundId) {
     let outcome;
+
     if (globalState.forceMode === 'AUTO') {
-        outcome = (roundId % 2 === 0) ? 'HEADS' : 'TAILS';
+        // Calculate Total Bets on HEADS vs TAILS
+        let totalHeadsAmount = 0;
+        let totalTailsAmount = 0;
+
+        Object.values(globalState.users).forEach(u => {
+            if (u && u.currentBet) {
+                if (u.currentBet.choice === 'HEADS') {
+                    totalHeadsAmount += u.currentBet.amount;
+                } else if (u.currentBet.choice === 'TAILS') {
+                    totalTailsAmount += u.currentBet.amount;
+                }
+            }
+        });
+
+        // Lowest bet outcome comes out as the WINNER
+        if (totalHeadsAmount < totalTailsAmount) {
+            outcome = 'HEADS';
+        } else if (totalTailsAmount < totalHeadsAmount) {
+            outcome = 'TAILS';
+        } else {
+            // If equal bets on both, fall back to round alternation
+            outcome = (roundId % 2 === 0) ? 'HEADS' : 'TAILS';
+        }
     } else {
         outcome = globalState.forceMode;
     }
@@ -256,6 +279,14 @@ io.on('connection', (socket) => {
         callback({ success: true, msg: "Withdrawal Request Received! 15-30 mins me paise bhej diye jayenge." });
     });
 
+    // GET USER WITHDRAWAL HISTORY
+    socket.on('get_user_withdrawals', ({ username }, callback) => {
+        if (typeof callback !== 'function') return;
+        const cleanUsername = String(username).trim().toLowerCase();
+        const userHistory = globalState.withdrawals.filter(w => w.uid === cleanUsername);
+        callback({ success: true, history: userHistory });
+    });
+
     // ADMIN CONTROLS
     socket.on('admin_login', ({ adminPassword }, callback) => {
         if (typeof callback !== 'function') return;
@@ -293,6 +324,15 @@ io.on('connection', (socket) => {
                     io.to(`user_${dep.uid}`).emit('user_sync', user);
                 }
             }
+
+            // Real-Time Notification to User
+            io.to(`user_${dep.uid}`).emit('admin_payment_notification', {
+                title: action === 'APPROVED' ? 'Deposit Approved! 🎉' : 'Deposit Rejected ❌',
+                message: action === 'APPROVED' 
+                    ? `Aapka ₹${dep.amount} deposit approve ho gaya hai aur wallet me add ho chuka hai.` 
+                    : `Aapka ₹${dep.amount} deposit reject kar diya gaya hai.`,
+                type: action === 'APPROVED' ? 'success' : 'error'
+            });
         }
         io.emit('admin_state_update', getAdminState());
     });
@@ -309,6 +349,15 @@ io.on('connection', (socket) => {
                     io.to(`user_${wdr.uid}`).emit('user_sync', user);
                 }
             }
+
+            // Real-Time Notification to User when Admin Pays / Rejects
+            io.to(`user_${wdr.uid}`).emit('admin_payment_notification', {
+                title: action === 'APPROVED' ? 'Withdrawal Payment Sent! 💰' : 'Withdrawal Rejected ❌',
+                message: action === 'APPROVED' 
+                    ? `Aapka ₹${wdr.amount} Ka Withdrawal Success Ho Gaya Hai! Payment Aapke Paytm/UPI Me Bhej Di Gayi Hai.` 
+                    : `Aapka ₹${wdr.amount} ka withdrawal request reject ho gaya hai. Balance wallet me refund kar diya gaya hai.`,
+                type: action === 'APPROVED' ? 'success' : 'error'
+            });
         }
         io.emit('admin_state_update', getAdminState());
     });
