@@ -11,9 +11,7 @@ app.use(express.static('public'));
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
-// SECRET ADMIN PASSWORD
 const ADMIN_SECRET = process.env.ADMIN_PASSWORD || "ADMIN@9988";
-
 const onlineUsers = new Map();
 
 let globalState = {
@@ -23,6 +21,7 @@ let globalState = {
     houseProfit: 0,
     users: {},
     deposits: [],
+    withdrawals: [],
     history: ['HEADS', 'TAILS', 'HEADS', 'HEADS', 'TAILS', 'HEADS'],
     recentBetsFeed: []
 };
@@ -72,18 +71,26 @@ function executeGlobalSpin(roundId) {
         if (user && user.currentBet) {
             globalState.totalVolume += user.currentBet.amount;
             
-            if (user.currentBet.choice === outcome) {
-                const winPayout = user.currentBet.amount * 2;
+            const isWin = user.currentBet.choice === outcome;
+            const betAmt = user.currentBet.amount;
+
+            if (isWin) {
+                const winPayout = betAmt * 2;
                 user.balance += winPayout;
                 user.streak += 1;
-                globalState.houseProfit -= user.currentBet.amount;
+                globalState.houseProfit -= betAmt;
             } else {
                 user.streak = 0;
-                globalState.houseProfit += user.currentBet.amount;
+                globalState.houseProfit += betAmt;
             }
             
+            io.to(`user_${username}`).emit('bet_settled', {
+                isWin: isWin,
+                amountWon: isWin ? betAmt * 2 : 0,
+                user: user
+            });
+
             user.currentBet = null;
-            io.to(`user_${username}`).emit('user_sync', user);
         }
     });
 
@@ -117,7 +124,8 @@ function getAdminState() {
         houseProfit: globalState.houseProfit,
         totalUsersCount: Object.keys(globalState.users).length,
         usersList: activeUsersList,
-        deposits: globalState.deposits.filter(d => d.status === 'PENDING')
+        deposits: globalState.deposits.filter(d => d.status === 'PENDING'),
+        withdrawals: globalState.withdrawals.filter(w => w.status === 'PENDING')
     };
 }
 
@@ -188,25 +196,64 @@ io.on('connection', (socket) => {
         callback({ success: true, msg: `₹${amount} bet ${choice} par lag gayi!` });
     });
 
+    // MINIMUM DEPOSIT ₹100
     socket.on('request_deposit', ({ username, amount, txnId }, callback) => {
         if (typeof callback !== 'function') return;
         const cleanUsername = String(username).trim().toLowerCase();
-        if (!amount || amount <= 0 || !txnId) {
-            return callback({ success: false, msg: "Valid Amount aur Transaction ID dalein!" });
+        
+        if (!amount || Number(amount) < 100) {
+            return callback({ success: false, msg: "Minimum deposit amount ₹100 hai!" });
+        }
+        if (!txnId || txnId.trim() === "") {
+            return callback({ success: false, msg: "Transaction/UTR ID enter karein!" });
         }
 
         const newDeposit = {
             id: Date.now(),
             uid: cleanUsername,
             amount: Number(amount),
-            txnId: txnId,
+            txnId: txnId.trim(),
             status: 'PENDING',
             time: new Date().toLocaleTimeString()
         };
 
         globalState.deposits.push(newDeposit);
         io.emit('admin_state_update', getAdminState());
-        callback({ success: true, msg: "Deposit Request Submitted!" });
+        callback({ success: true, msg: "Deposit Request Submitted! Verification ke baad balance add hoga." });
+    });
+
+    // MINIMUM WITHDRAWAL ₹300
+    socket.on('request_withdrawal', ({ username, amount, upiDetails }, callback) => {
+        if (typeof callback !== 'function') return;
+        const cleanUsername = String(username).trim().toLowerCase();
+        const user = globalState.users[cleanUsername];
+
+        if (!user) return callback({ success: false, msg: "Pehle login karein!" });
+        if (!amount || Number(amount) < 300) {
+            return callback({ success: false, msg: "Minimum withdrawal amount ₹300 hai!" });
+        }
+        if (Number(amount) > user.balance) {
+            return callback({ success: false, msg: "Aapke paas itna balance nahi hai!" });
+        }
+        if (!upiDetails || upiDetails.trim() === "") {
+            return callback({ success: false, msg: "UPI ID ya Bank details enter karein!" });
+        }
+
+        user.balance -= Number(amount);
+
+        const newWithdrawal = {
+            id: Date.now(),
+            uid: cleanUsername,
+            amount: Number(amount),
+            upiDetails: upiDetails.trim(),
+            status: 'PENDING',
+            time: new Date().toLocaleTimeString()
+        };
+
+        globalState.withdrawals.push(newWithdrawal);
+        io.to(`user_${cleanUsername}`).emit('user_sync', user);
+        io.emit('admin_state_update', getAdminState());
+        callback({ success: true, msg: "Withdrawal Request Received! 15-30 mins me paise bhej diye jayenge." });
     });
 
     // ADMIN CONTROLS
@@ -244,6 +291,22 @@ io.on('connection', (socket) => {
                 if (user) {
                     user.balance += dep.amount;
                     io.to(`user_${dep.uid}`).emit('user_sync', user);
+                }
+            }
+        }
+        io.emit('admin_state_update', getAdminState());
+    });
+
+    socket.on('admin_process_withdrawal', ({ adminSecret, id, action }) => {
+        if (adminSecret !== ADMIN_SECRET) return;
+        const wdr = globalState.withdrawals.find(w => w.id === id);
+        if (wdr && wdr.status === 'PENDING') {
+            wdr.status = action;
+            if (action === 'REJECTED') {
+                const user = globalState.users[wdr.uid];
+                if (user) {
+                    user.balance += wdr.amount; // Refund if rejected
+                    io.to(`user_${wdr.uid}`).emit('user_sync', user);
                 }
             }
         }
