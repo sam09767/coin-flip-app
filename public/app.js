@@ -1,304 +1,248 @@
 const socket = io();
 
 let currentUser = null;
-let currentUpi = "ishaquehaque107@okaxis";
-let MASTER_PIN = "9876";
-let adminTapSequence = 0;
-let tapTimer = null;
 let currentRotation = 0;
+let currentAdminSecret = null;
 
-// High-Tech Web Audio Synthesizer
-const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-
-function playSound(type) {
-    try {
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-
-        if (type === 'tick') {
-            osc.frequency.setValueAtTime(800, audioCtx.currentTime);
-            gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
-            osc.start(); osc.stop(audioCtx.currentTime + 0.03);
-        } else if (type === 'click') {
-            osc.frequency.setValueAtTime(450, audioCtx.currentTime);
-            gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
-            osc.start(); osc.stop(audioCtx.currentTime + 0.05);
-        } else if (type === 'spin') {
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(1200, audioCtx.currentTime);
-            osc.frequency.exponentialRampToValueAtTime(300, audioCtx.currentTime + 1.2);
-            gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 1.2);
-            osc.start(); osc.stop(audioCtx.currentTime + 1.2);
-        } else if (type === 'win') {
-            const now = audioCtx.currentTime;
-            [523.25, 659.25, 783.99, 1046.50].forEach((freq, idx) => {
-                const o = audioCtx.createOscillator();
-                const g = audioCtx.createGain();
-                o.connect(g); g.connect(audioCtx.destination);
-                o.frequency.setValueAtTime(freq, now + idx * 0.08);
-                g.gain.setValueAtTime(0.15, now + idx * 0.08);
-                o.start(now + idx * 0.08);
-                o.stop(now + idx * 0.08 + 0.2);
-            });
-        } else if (type === 'lose') {
-            osc.frequency.setValueAtTime(220, audioCtx.currentTime);
-            osc.frequency.linearRampToValueAtTime(110, audioCtx.currentTime + 0.3);
-            gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
-            osc.start(); osc.stop(audioCtx.currentTime + 0.3);
-        }
-    } catch (e) {}
-}
-
-// Socket Listeners
-socket.on('time_sync', (data) => {
-    document.getElementById('round').innerText = data.roundId;
-    document.getElementById('timer').innerText = data.secondsRemaining;
-    document.getElementById('istClock').innerText = data.istTime;
-
-    const sec = parseFloat(data.secondsRemaining);
-    if (sec <= 5.0 && sec > 0.2 && Math.floor(sec * 10) % 10 === 0) {
-        playSound('tick');
-    }
-});
-
-socket.on('round_result', (data) => {
-    animate3DCoin(data.outcome);
-    renderHistoryUI(data.history);
-});
-
-socket.on('user_sync', (userData) => {
-    if (currentUser) {
-        currentUser.balance = userData.balance;
-        currentUser.streak = userData.streak;
-        currentUser.currentBet = userData.currentBet;
-        updateUserUI();
-    }
-});
-
-socket.on('live_bet_feed', (feed) => {
-    const feedContainer = document.getElementById('liveBetsFeed');
-    if (!feedContainer) return;
-    feedContainer.innerHTML = '';
-    if (feed.length === 0) {
-        feedContainer.innerHTML = `<span class="feed-item">Waiting for bets...</span>`;
-    } else {
-        feed.forEach(item => {
-            const span = document.createElement('span');
-            span.className = 'feed-item';
-            span.innerText = item;
-            feedContainer.appendChild(span);
+// Auto-Login Check On Page Load / Refresh
+window.addEventListener('DOMContentLoaded', () => {
+    const saved = localStorage.getItem('coin_app_user');
+    if (saved) {
+        const { username, password } = JSON.parse(saved);
+        socket.emit('user_login', { username, password, isSignUp: false }, (res) => {
+            if (res.success) {
+                onLoginSuccess(res.userData, res.adminUpi, username, password);
+            } else {
+                localStorage.removeItem('coin_app_user');
+            }
         });
     }
 });
 
-socket.on('upi_changed', (newUpi) => {
-    currentUpi = newUpi;
-    document.getElementById('displayUpi').innerText = newUpi;
-    updateQrCode();
-});
+// Auth Submit Handler
+function submitAuth(isSignUp) {
+    const uInput = document.getElementById('authUsername').value;
+    const pInput = document.getElementById('authPassword').value;
+    const msgBox = document.getElementById('authMsg');
 
-socket.on('admin_state_update', (adminState) => {
-    renderAdminPanel(adminState);
-});
-
-// User Auth Operations
-function handleAuth(isSignUp) {
-    const usernameInput = document.getElementById('authUsername').value;
-    const passwordInput = document.getElementById('authPassword').value;
-    const errDisplay = document.getElementById('authErrorMsg');
-
-    socket.emit('user_login', { username: usernameInput, password: passwordInput, isSignUp }, (res) => {
-        if (res.success) {
-            currentUser = res.userData;
-            document.getElementById('authSection').style.display = 'none';
-            document.getElementById('gameSection').style.display = 'block';
-            updateUserUI();
-            errDisplay.innerText = '';
-        } else {
-            errDisplay.innerText = res.msg;
-            playSound('lose');
-        }
-    });
-}
-
-function updateUserUI() {
-    document.getElementById('balance').innerText = currentUser.balance;
-    document.getElementById('streak').innerText = currentUser.streak;
-
-    const statusMsg = document.getElementById('statusMessage');
-    if (currentUser.currentBet) {
-        statusMsg.style.color = '#38bdf8';
-        statusMsg.innerText = `Active Bet: ₹${currentUser.currentBet.amount} on ${currentUser.currentBet.choice}`;
+    if (!uInput || !pInput) {
+        msgBox.innerText = "Username aur Password dalein!";
+        msgBox.style.color = "#ef4444";
+        return;
     }
-}
 
-// Bet Operations
-function placeBet(choice) {
-    if (!currentUser) return alert("Pehle Login karein!");
-    const amount = Number(document.getElementById('betAmount').value);
-    const statusMsg = document.getElementById('statusMessage');
-
-    socket.emit('place_bet', { username: currentUser.username, choice, amount }, (res) => {
-        statusMsg.style.color = res.success ? '#38bdf8' : '#ef4444';
-        statusMsg.innerText = res.msg;
+    socket.emit('user_login', { username: uInput, password: pInput, isSignUp }, (res) => {
         if (res.success) {
-            playSound('click');
-            document.getElementById('betAmount').value = '';
+            onLoginSuccess(res.userData, res.adminUpi, uInput, pInput);
         } else {
-            playSound('lose');
+            msgBox.innerText = res.msg;
+            msgBox.style.color = "#ef4444";
         }
     });
 }
 
-function setBetAmount(val) {
-    const input = document.getElementById('betAmount');
-    input.value = (val === 'max') ? currentUser.balance : (Number(input.value) || 0) + val;
-    playSound('click');
+function onLoginSuccess(userData, adminUpi, username, password) {
+    currentUser = userData;
+    localStorage.setItem('coin_app_user', JSON.stringify({ username, password }));
+    
+    document.getElementById('authModal').style.display = 'none';
+    document.getElementById('walletBalance').innerText = `₹${userData.balance}`;
+    document.getElementById('adminUpiText').innerText = adminUpi;
 }
 
-// 3D Coin Rotation Animation Engine
-function animate3DCoin(outcome) {
+// Timer & IST Sync Listener
+socket.on('time_sync', (data) => {
+    document.getElementById('roundIdText').innerText = `#${data.roundId}`;
+    document.getElementById('countdownTimer').innerText = `${data.secondsRemaining}s`;
+    document.getElementById('istTimeText').innerText = `IST Time: ${data.istTime}`;
+});
+
+// Accurate Coin Spin Animation Logic
+socket.on('round_result', (data) => {
     const coin = document.getElementById('coin3d');
-    const resultDisplay = document.getElementById('resultDisplay');
-
-    resultDisplay.innerText = "🌀 Flipping...";
-    playSound('spin');
-
-    currentRotation += 1800; // 5 full 360-degree spins
-    if (outcome === 'TAILS') {
+    
+    currentRotation += 1800;
+    if (data.outcome === 'TAILS') {
         currentRotation += 180;
+    }
+    
+    if (currentRotation % 360 !== (data.outcome === 'HEADS' ? 0 : 180)) {
+        currentRotation += (data.outcome === 'HEADS' ? 0 : 180) - (currentRotation % 360);
     }
 
     coin.style.transform = `rotateY(${currentRotation}deg)`;
 
     setTimeout(() => {
-        resultDisplay.innerText = `Result: ${outcome}`;
-        if (currentUser && currentUser.currentBet) {
-            if (currentUser.currentBet.choice === outcome) {
-                playSound('win');
-                if (typeof confetti === 'function') confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } });
-            } else {
-                playSound('lose');
-            }
-        }
+        document.getElementById('resultText').innerText = `RESULT: ${data.outcome}`;
+        document.getElementById('statusMsg').innerText = "";
     }, 1300);
+
+    renderHistory(data.history);
+});
+
+// Real-Time Socket Listeners
+socket.on('user_sync', (user) => {
+    currentUser = user;
+    document.getElementById('walletBalance').innerText = `₹${user.balance}`;
+});
+
+socket.on('upi_changed', (upi) => {
+    document.getElementById('adminUpiText').innerText = upi;
+});
+
+socket.on('live_bet_feed', (feed) => {
+    const feedBox = document.getElementById('betsFeed');
+    if (feed.length === 0) {
+        feedBox.innerHTML = `<div class="feed-item">Waiting for bets...</div>`;
+    } else {
+        feedBox.innerHTML = feed.map(f => `<div class="feed-item">${f}</div>`).join('');
+    }
+});
+
+socket.on('history_update', renderHistory);
+
+function renderHistory(hist) {
+    const container = document.getElementById('historyChips');
+    container.innerHTML = hist.map(h => `<div class="chip ${h.toLowerCase()}">${h[0]}</div>`).join('');
 }
 
-// Deposit System Functions
-function toggleDepositModal(show) {
-    document.getElementById('depositModal').style.display = show ? 'flex' : 'none';
-    if (show) updateQrCode();
+// Betting Handlers
+function setBetAmount(amt) {
+    const input = document.getElementById('betAmountInput');
+    input.value = Number(input.value || 0) + amt;
 }
 
-function updateQrCode() {
-    const qrImg = document.getElementById('qrImage');
-    const upiUri = `upi://pay?pa=${currentUpi}&pn=RoyalFlip%20Deposit&cu=INR`;
-    qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(upiUri)}`;
+function placeBet(choice) {
+    if (!currentUser) return alert("Pehle login karein!");
+    const amt = Number(document.getElementById('betAmountInput').value);
+    
+    socket.emit('place_bet', { username: currentUser.username, choice, amount: amt }, (res) => {
+        const msg = document.getElementById('statusMsg');
+        msg.innerText = res.msg;
+        msg.style.color = res.success ? "#22c55e" : "#ef4444";
+    });
 }
+
+// Deposit Handlers
+document.getElementById('openDepositBtn').addEventListener('click', () => {
+    document.getElementById('depositModal').style.display = 'flex';
+});
 
 function submitDeposit() {
-    const amount = document.getElementById('depAmountInput').value;
-    const txnId = document.getElementById('depTxnInput').value;
+    const amt = document.getElementById('depAmount').value;
+    const txn = document.getElementById('depTxnId').value;
 
-    socket.emit('request_deposit', { username: currentUser.username, amount, txnId }, (res) => {
+    socket.emit('request_deposit', { username: currentUser.username, amount: amt, txnId: txn }, (res) => {
         alert(res.msg);
+        if (res.success) closeModal('depositModal');
+    });
+}
+
+// SECRET ADMIN TRIGGER: 10 TAPS IN 1.5 SECONDS
+let logoTapTimestamps = [];
+
+document.getElementById('brandBtn').addEventListener('click', () => {
+    const now = Date.now();
+    logoTapTimestamps.push(now);
+
+    // Keep only taps within the last 1500ms (1.5 seconds)
+    logoTapTimestamps = logoTapTimestamps.filter(timestamp => now - timestamp <= 1500);
+
+    if (logoTapTimestamps.length >= 10) {
+        logoTapTimestamps = []; // Reset counter
+
+        if (currentAdminSecret) {
+            socket.emit('get_admin_data', { adminSecret: currentAdminSecret }, (data) => {
+                renderAdminPanel(data);
+                document.getElementById('adminModal').style.display = 'flex';
+            });
+        } else {
+            document.getElementById('adminPassInput').value = "";
+            document.getElementById('adminAuthMsg').innerText = "";
+            document.getElementById('adminAuthModal').style.display = 'flex';
+        }
+    }
+});
+
+function verifyAdminPassword() {
+    const pass = document.getElementById('adminPassInput').value;
+    const msgBox = document.getElementById('adminAuthMsg');
+
+    socket.emit('admin_login', { adminPassword: pass }, (res) => {
         if (res.success) {
-            toggleDepositModal(false);
-            document.getElementById('depAmountInput').value = '';
-            document.getElementById('depTxnInput').value = '';
+            currentAdminSecret = pass;
+            closeModal('adminAuthModal');
+            renderAdminPanel(res.data);
+            document.getElementById('adminModal').style.display = 'flex';
+        } else {
+            msgBox.innerText = res.msg;
+            msgBox.style.color = "#ef4444";
         }
     });
 }
 
-// Secret Developer Admin Triggers (7 Taps)
-function handleAdminTrigger() {
-    adminTapSequence++;
-    clearTimeout(tapTimer);
-    tapTimer = setTimeout(() => { adminTapSequence = 0; }, 1500);
-
-    if (adminTapSequence >= 7) {
-        adminTapSequence = 0;
-        document.getElementById('authModal').style.display = 'flex';
+socket.on('admin_state_update', (data) => {
+    if (document.getElementById('adminModal').style.display === 'flex' && currentAdminSecret) {
+        renderAdminPanel(data);
     }
+});
+
+function renderAdminPanel(data) {
+    document.getElementById('adminProfit').innerText = `₹${data.houseProfit}`;
+    document.getElementById('adminVolume').innerText = `₹${data.totalVolume}`;
+
+    let uHTML = "";
+    data.usersList.forEach(u => {
+        uHTML += `
+            <div class="admin-dep-item">
+                <div>
+                    <strong>${u.username}</strong> ${u.isOnline ? '🟢' : '🔴'}<br>
+                    <small>Bal: ₹${u.balance} | Bet: ${u.activeBet}</small>
+                </div>
+                <button class="btn-approve" onclick="addMoney('${u.username}')">+ Cash</button>
+            </div>
+        `;
+    });
+    document.getElementById('adminUsersContainer').innerHTML = uHTML || "No Users";
+
+    let dHTML = "";
+    data.deposits.forEach(d => {
+        dHTML += `
+            <div class="admin-dep-item">
+                <div>
+                    <strong>${d.uid}</strong>: ₹${d.amount}<br>
+                    <small>Txn: ${d.txnId}</small>
+                </div>
+                <div>
+                    <button class="btn-approve" onclick="processDep(${d.id}, 'APPROVED')">✓</button>
+                    <button class="btn-reject" onclick="processDep(${d.id}, 'REJECTED')">✕</button>
+                </div>
+            </div>
+        `;
+    });
+    document.getElementById('adminDepositsContainer').innerHTML = dHTML || "No Pending Requests";
 }
 
-function authenticateAdmin() {
-    const pass = document.getElementById('adminPasscode').value;
-    if (pass === MASTER_PIN) {
-        document.getElementById('authModal').style.display = 'none';
-        document.getElementById('adminModal').style.display = 'flex';
-        document.getElementById('adminPasscode').value = '';
-        document.getElementById('adminPassErr').innerText = '';
-        socket.emit('get_admin_data', (state) => renderAdminPanel(state));
-    } else {
-        document.getElementById('adminPassErr').innerText = "❌ GALAT PASSCODE";
-        playSound('lose');
-    }
+function setAdminMode(mode) {
+    socket.emit('admin_set_mode', { adminSecret: currentAdminSecret, mode });
 }
 
 function updateAdminUpi() {
-    const newUpi = document.getElementById('adminUpiInput').value;
-    socket.emit('admin_update_upi', { newUpi });
-    alert("UPI ID Update Ho Gayi!");
+    const upi = document.getElementById('newUpiInput').value;
+    socket.emit('admin_update_upi', { adminSecret: currentAdminSecret, newUpi: upi });
 }
 
-function setForceMode(mode) {
-    socket.emit('admin_set_mode', { mode });
+function processDep(id, action) {
+    socket.emit('admin_process_deposit', { adminSecret: currentAdminSecret, id, action });
 }
 
-function processDeposit(id, action) {
-    socket.emit('admin_process_deposit', { id, action });
-}
-
-function adjustUserWallet() {
-    const username = document.getElementById('targetUser').value;
-    const amount = document.getElementById('targetAmount').value;
-
-    if (!username || !amount) return alert("Username aur Amount dono bharein!");
-
-    socket.emit('admin_modify_wallet', { username, amount });
-    alert(`₹${amount} wallet update sent for ${username}!`);
-    document.getElementById('targetUser').value = '';
-    document.getElementById('targetAmount').value = '';
-}
-
-function renderAdminPanel(state) {
-    document.getElementById('adminUsersCount').innerText = state.totalUsersCount;
-    document.getElementById('adminHouseProfit').innerText = `₹${state.houseProfit}`;
-    document.getElementById('adminTotalVolume').innerText = `₹${state.totalVolume}`;
-    document.getElementById('adminCurrentMode').innerText = state.forceMode;
-
-    const depList = document.getElementById('adminDepositList');
-    depList.innerHTML = '';
-
-    if (state.deposits.length === 0) {
-        depList.innerHTML = `<div style="font-size: 0.75rem; color:#94a3b8;">Koi pending deposit nahi hai.</div>`;
-    } else {
-        state.deposits.forEach(d => {
-            const item = document.createElement('div');
-            item.className = 'admin-dep-item';
-            item.innerHTML = `
-                <span>User: <b>${d.uid}</b> | ₹${d.amount} | UTR: ${d.txnId}</span>
-                <div>
-                    <button onclick="processDeposit(${d.id}, 'APPROVED')" class="btn-approve">Approve</button>
-                    <button onclick="processDeposit(${d.id}, 'REJECTED')" class="btn-reject">Reject</button>
-                </div>
-            `;
-            depList.appendChild(item);
-        });
+function addMoney(username) {
+    const amt = prompt(`${username} ke wallet me kitne paise jodna/ghatana chahte hain? (e.g. 500 ya -200)`);
+    if (amt) {
+        socket.emit('admin_modify_wallet', { adminSecret: currentAdminSecret, username, amount: Number(amt) });
     }
 }
 
-function renderHistoryUI(history) {
-    const container = document.getElementById('historyChips');
-    container.innerHTML = '';
-    history.forEach(item => {
-        const chip = document.createElement('div');
-        chip.className = `chip ${item.toLowerCase()}`;
-        chip.innerText = item === 'HEADS' ? 'H' : 'T';
-        container.appendChild(chip);
-    });
+function closeModal(id) {
+    document.getElementById(id).style.display = 'none';
 }
