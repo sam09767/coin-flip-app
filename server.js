@@ -16,12 +16,26 @@ const io = new Server(server, { cors: { origin: "*" } });
 const ADMIN_SECRET = process.env.ADMIN_PASSWORD || "ADMIN@9988";
 const MONGO_URI = process.env.MONGO_URI;
 
-// Nodemailer Gmail Transporter Setup
+// Nodemailer Transporter Setup (Render Cloud Datacenter Optimized)
 const transporter = nodemailer.createTransport({
-    service: 'gmail',
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true, // SSL Connection for Port 465
     auth: {
         user: 'sameerkhanl045632@gmail.com',
-        pass: 'rtkrdhizhcwbsxnl' // Image wala App Password
+        pass: 'rtkrdhizhcwbsxnl' // Gmail App Password
+    },
+    tls: {
+        rejectUnauthorized: false // Render IP block bypass ke liye
+    }
+});
+
+// Startup SMTP Verification Test
+transporter.verify((error, success) => {
+    if (error) {
+        console.error("❌ Gmail Transporter Connection Error:", error.message);
+    } else {
+        console.log("✅ Gmail Server OTP bhejne ke liye READY hai!");
     }
 });
 
@@ -254,7 +268,7 @@ io.on('connection', async (socket) => {
             callback({ success: true, msg: "OTP aapke Gmail par bhej diya gaya hai!" });
         } catch (err) {
             console.error("❌ Email Send Error:", err);
-            callback({ success: false, msg: "OTP bhejne me dikkat aayi. Email check karein!" });
+            callback({ success: false, msg: "OTP bhejne me dikkat aayi. App Password ya Email check karein!" });
         }
     });
 
