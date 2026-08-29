@@ -10,7 +10,7 @@ let currentRotation = 0;
 let currentAdminSecret = null;
 let activeUpiId = "ishaquehaque107@okaxis";
 
-// WEB AUDIO SYNTHESIZER SOUND ENGINE (100% Guaranteed Sound in all Mobile Browsers)
+// WEB AUDIO SYNTHESIZER SOUND ENGINE
 let audioCtx = null;
 
 function initAudio() {
@@ -47,7 +47,6 @@ function playSound(type) {
             osc.start(now);
             osc.stop(now + 0.3);
         } else if (type === 'win') {
-            // Winning Fanfare Tones
             const notes = [523.25, 659.25, 783.99, 1046.50];
             notes.forEach((freq, index) => {
                 const noteOsc = audioCtx.createOscillator();
@@ -79,7 +78,6 @@ function playSound(type) {
     }
 }
 
-// Socket Connection Status
 socket.on('connect', () => {
     console.log("Connected to Render Server:", socket.id);
     const msgBox = document.getElementById('authMsg');
@@ -97,29 +95,41 @@ socket.on('connect_error', () => {
     }
 });
 
-// Auto-Login Check On Page Load
-window.addEventListener('DOMContentLoaded', () => {
-    const saved = localStorage.getItem('coin_app_user');
-    if (saved) {
-        const { username, password } = JSON.parse(saved);
-        socket.emit('user_login', { username, password, isSignUp: false }, (res) => {
-            if (res && res.success) {
-                onLoginSuccess(res.userData, res.adminUpi, username, password);
-            } else {
-                localStorage.removeItem('coin_app_user');
-            }
-        });
+// Send OTP Request Function
+function requestOtp() {
+    initAudio();
+    const email = document.getElementById('authEmail').value.trim();
+    const msgBox = document.getElementById('authMsg');
+    const sendBtn = document.getElementById('sendOtpBtn');
+
+    if (!email || !email.includes('@')) {
+        msgBox.innerText = "Sahi Gmail address enter karein!";
+        msgBox.style.color = "#ef4444";
+        return;
     }
-});
+
+    sendBtn.disabled = true;
+    sendBtn.innerText = "Sending...";
+    msgBox.innerText = "OTP bhej rahe hain...";
+    msgBox.style.color = "#facc15";
+
+    socket.emit('send_otp', { email }, (res) => {
+        sendBtn.disabled = false;
+        sendBtn.innerText = "Send OTP";
+        msgBox.innerText = res.msg;
+        msgBox.style.color = res.success ? "#22c55e" : "#ef4444";
+    });
+}
 
 function submitAuth(isSignUp) {
     initAudio();
-    const uInput = document.getElementById('authUsername').value.trim();
-    const pInput = document.getElementById('authPassword').value.trim();
+    const email = document.getElementById('authEmail').value.trim();
+    const otp = document.getElementById('authOtp').value.trim();
+    const password = document.getElementById('authPassword').value.trim();
     const msgBox = document.getElementById('authMsg');
 
-    if (!uInput || !pInput) {
-        msgBox.innerText = "Username aur Password dono dalein!";
+    if (!email || !otp || !password) {
+        msgBox.innerText = "Email, OTP aur Password sabhi zaroori hain!";
         msgBox.style.color = "#ef4444";
         return;
     }
@@ -133,11 +143,11 @@ function submitAuth(isSignUp) {
     msgBox.innerText = isSignUp ? "Account ban raha hai..." : "Login ho raha hai...";
     msgBox.style.color = "#facc15";
 
-    socket.emit('user_login', { username: uInput, password: pInput, isSignUp }, (res) => {
+    socket.emit('user_login', { username: email, password, otp, isSignUp }, (res) => {
         if (res && res.success) {
             msgBox.innerText = "Success!";
             msgBox.style.color = "#22c55e";
-            onLoginSuccess(res.userData, res.adminUpi, uInput, pInput);
+            onLoginSuccess(res.userData, res.adminUpi, email, password);
         } else {
             msgBox.innerText = (res && res.msg) ? res.msg : "Login Error!";
             msgBox.style.color = "#ef4444";
@@ -169,7 +179,6 @@ socket.on('time_sync', (data) => {
 // Coin Spin Animation + Spin Sound
 socket.on('round_result', (data) => {
     const coin = document.getElementById('coin3d');
-    
     playSound('spin');
 
     currentRotation += 1800;
@@ -193,7 +202,7 @@ socket.on('round_result', (data) => {
     renderHistory(data.history);
 });
 
-// Settlement Event (Win Animation + Sound)
+// Settlement Event
 socket.on('bet_settled', (data) => {
     currentUser = data.user;
     const balEl = document.getElementById('walletBalance');
@@ -210,7 +219,6 @@ socket.on('bet_settled', (data) => {
     }, 1300);
 });
 
-// Admin Payment Notification Trigger
 socket.on('admin_payment_notification', (data) => {
     playSound('win');
     document.getElementById('notifyTitle').innerText = data.title;
@@ -247,7 +255,6 @@ function renderHistory(hist) {
     container.innerHTML = hist.map(h => `<div class="chip ${h.toLowerCase()}">${h[0]}</div>`).join('');
 }
 
-// Bet Controls
 function setBetAmount(amt) {
     const input = document.getElementById('betAmountInput');
     if (input) input.value = Number(input.value || 0) + amt;
@@ -267,7 +274,6 @@ function placeBet(choice) {
     });
 }
 
-// Deposit QR Code Generator Logic
 function updateQrCode() {
     const amt = document.getElementById('depAmount').value || 100;
     const qrImg = document.getElementById('depositQrImage');
@@ -293,7 +299,6 @@ function submitDeposit() {
     });
 }
 
-// Withdrawal Modal & Fetch History
 document.getElementById('openWithdrawBtn').addEventListener('click', () => {
     if (!currentUser) return alert("Pehle login karein!");
     document.getElementById('withdrawModal').style.display = 'flex';
