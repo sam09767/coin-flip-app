@@ -26,6 +26,7 @@
             padding: 30px;
             text-align: center;
             box-shadow: 0 0 30px rgba(250, 204, 21, 0.5);
+            max-width: 90%;
         }
         .win-title {
             font-size: 2.5rem;
@@ -67,6 +68,19 @@
             font-weight: bold;
             margin-top: 5px;
         }
+        .history-item {
+            background: #1e293b;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.85rem;
+        }
+        .badge-pending { background: #eab308; color: #000; padding: 2px 8px; border-radius: 12px; font-weight: bold; }
+        .badge-approved { background: #22c55e; color: #fff; padding: 2px 8px; border-radius: 12px; font-weight: bold; }
+        .badge-rejected { background: #ef4444; color: #fff; padding: 2px 8px; border-radius: 12px; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -151,6 +165,15 @@
     </div>
 </div>
 
+<!-- Admin Payment Received Notification Popup -->
+<div class="win-overlay" id="notifyOverlay">
+    <div class="win-card" style="border-color:#38bdf8; box-shadow: 0 0 30px rgba(56, 189, 248, 0.5);">
+        <div class="win-title" id="notifyTitle" style="color:#38bdf8; font-size:1.8rem;">NOTIFICATION</div>
+        <p style="color:#cbd5e1; margin:15px 0; font-size:1.1rem;" id="notifyMessage"></p>
+        <button class="action-btn success" onclick="closeModal('notifyOverlay')">OK, GOT IT</button>
+    </div>
+</div>
+
 <!-- Auth Modal -->
 <div class="modal-overlay" id="authModal" style="display:flex;">
     <div class="modal-content">
@@ -181,15 +204,24 @@
     </div>
 </div>
 
-<!-- Withdrawal Modal (Min ₹300) -->
+<!-- Withdrawal & Withdrawal History Modal -->
 <div class="modal-overlay" id="withdrawModal">
     <div class="modal-content">
         <h2 style="color:#eab308;">WITHDRAW MONEY</h2>
         <p style="font-size:0.85rem; margin-top:5px; color:#facc15;">Minimum Withdrawal: <strong>₹300</strong></p>
+        
         <input type="number" id="wdrAmount" placeholder="Enter Amount (Min ₹300)" value="300">
         <input type="text" id="wdrUpi" placeholder="Enter UPI ID / Bank Details">
         <button class="action-btn success" onclick="submitWithdrawal()">Request Withdrawal</button>
-        <button class="action-btn danger" onclick="closeModal('withdrawModal')">Close</button>
+        
+        <hr style="border-color:#334155; margin:15px 0;">
+        
+        <h3 style="color:#38bdf8; font-size:1rem; margin-bottom:10px;">YOUR WITHDRAWAL HISTORY</h3>
+        <div id="userWithdrawalHistory" style="max-height:150px; overflow-y:auto; text-align:left;">
+            <p style="text-align:center; color:#64748b; font-size:0.8rem;">Loading history...</p>
+        </div>
+
+        <button class="action-btn danger" onclick="closeModal('withdrawModal')" style="margin-top:15px;">Close</button>
     </div>
 </div>
 
@@ -218,7 +250,7 @@
         <div style="display:flex; gap:5px; margin-bottom:10px;">
             <button class="action-btn" style="background:#eab308; padding:6px;" onclick="setAdminMode('HEADS')">Force HEADS</button>
             <button class="action-btn" style="background:#64748b; padding:6px;" onclick="setAdminMode('TAILS')">Force TAILS</button>
-            <button class="action-btn" style="background:#22c55e; padding:6px;" onclick="setAdminMode('AUTO')">AUTO Mode</button>
+            <button class="action-btn" style="background:#22c55e; padding:6px;" onclick="setAdminMode('AUTO')">AUTO (Lowest Bet)</button>
         </div>
 
         <h4 style="color:#38bdf8;">Change Admin UPI:</h4>
