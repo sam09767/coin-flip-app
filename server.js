@@ -14,15 +14,14 @@ const io = new Server(server, { cors: { origin: "*" } });
 // SECRET ADMIN PASSWORD
 const ADMIN_SECRET = process.env.ADMIN_PASSWORD || "ADMIN@9988";
 
-// Active socket connection tracking
-const onlineUsers = new Map(); // socket.id -> username
+const onlineUsers = new Map();
 
 let globalState = {
     adminUpi: "ishaquehaque107@okaxis",
-    forceMode: "AUTO", // AUTO, HEADS, TAILS
+    forceMode: "AUTO",
     totalVolume: 0,
     houseProfit: 0,
-    users: {}, // { username: { password, balance, streak, currentBet: null } }
+    users: {},
     deposits: [],
     history: ['HEADS', 'TAILS', 'HEADS', 'HEADS', 'TAILS', 'HEADS'],
     recentBetsFeed: []
@@ -30,7 +29,6 @@ let globalState = {
 
 let lastExecutedRound = -1;
 
-// Central Game Loop (30 Second Timer)
 setInterval(() => {
     const epochMs = Date.now();
     const roundId = Math.floor(epochMs / 30000);
@@ -69,20 +67,17 @@ function executeGlobalSpin(roundId) {
     globalState.history.unshift(outcome);
     if (globalState.history.length > 10) globalState.history.pop();
 
-    // Calculate payouts and settle all active bets
     Object.keys(globalState.users).forEach(username => {
         const user = globalState.users[username];
         if (user && user.currentBet) {
             globalState.totalVolume += user.currentBet.amount;
             
             if (user.currentBet.choice === outcome) {
-                // WIN: Give back original bet + win profit (2x total)
                 const winPayout = user.currentBet.amount * 2;
                 user.balance += winPayout;
                 user.streak += 1;
                 globalState.houseProfit -= user.currentBet.amount;
             } else {
-                // LOSS: Balance was already deducted during bet placement
                 user.streak = 0;
                 globalState.houseProfit += user.currentBet.amount;
             }
@@ -132,11 +127,13 @@ io.on('connection', (socket) => {
     socket.emit('live_bet_feed', globalState.recentBetsFeed);
 
     socket.on('user_login', ({ username, password, isSignUp }, callback) => {
+        if (typeof callback !== 'function') return;
         if (!username || !password) {
             return callback({ success: false, msg: "Username aur Password required hain!" });
         }
 
-        const cleanUsername = username.trim().toLowerCase();
+        const cleanUsername = String(username).trim().toLowerCase();
+        const cleanPassword = String(password).trim();
 
         if (isSignUp) {
             if (globalState.users[cleanUsername]) {
@@ -144,13 +141,13 @@ io.on('connection', (socket) => {
             }
             globalState.users[cleanUsername] = {
                 username: cleanUsername,
-                password: password,
-                balance: 100, // Signup Bonus
+                password: cleanPassword,
+                balance: 100,
                 streak: 0,
                 currentBet: null
             };
         } else {
-            if (!globalState.users[cleanUsername] || globalState.users[cleanUsername].password !== password) {
+            if (!globalState.users[cleanUsername] || globalState.users[cleanUsername].password !== cleanPassword) {
                 return callback({ success: false, msg: "Galat Username ya Password!" });
             }
         }
@@ -168,7 +165,8 @@ io.on('connection', (socket) => {
     });
 
     socket.on('place_bet', ({ username, choice, amount }, callback) => {
-        const cleanUsername = username.trim().toLowerCase();
+        if (typeof callback !== 'function') return;
+        const cleanUsername = String(username).trim().toLowerCase();
         const user = globalState.users[cleanUsername];
 
         if (!user) return callback({ success: false, msg: "Pehle Login karein!" });
@@ -191,7 +189,8 @@ io.on('connection', (socket) => {
     });
 
     socket.on('request_deposit', ({ username, amount, txnId }, callback) => {
-        const cleanUsername = username.trim().toLowerCase();
+        if (typeof callback !== 'function') return;
+        const cleanUsername = String(username).trim().toLowerCase();
         if (!amount || amount <= 0 || !txnId) {
             return callback({ success: false, msg: "Valid Amount aur Transaction ID dalein!" });
         }
@@ -210,8 +209,9 @@ io.on('connection', (socket) => {
         callback({ success: true, msg: "Deposit Request Submitted!" });
     });
 
-    // SECURE ADMIN CONTROLS
+    // ADMIN CONTROLS
     socket.on('admin_login', ({ adminPassword }, callback) => {
+        if (typeof callback !== 'function') return;
         if (adminPassword === ADMIN_SECRET) {
             callback({ success: true, data: getAdminState() });
         } else {
@@ -252,7 +252,7 @@ io.on('connection', (socket) => {
 
     socket.on('admin_modify_wallet', ({ adminSecret, username, amount }) => {
         if (adminSecret !== ADMIN_SECRET) return;
-        const cleanUsername = username.trim().toLowerCase();
+        const cleanUsername = String(username).trim().toLowerCase();
         const user = globalState.users[cleanUsername];
         if (user) {
             user.balance = Math.max(0, user.balance + Number(amount));
@@ -262,7 +262,7 @@ io.on('connection', (socket) => {
     });
 
     socket.on('get_admin_data', ({ adminSecret }, callback) => {
-        if (adminSecret === ADMIN_SECRET && callback) {
+        if (adminSecret === ADMIN_SECRET && typeof callback === 'function') {
             callback(getAdminState());
         }
     });
