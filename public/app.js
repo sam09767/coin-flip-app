@@ -1,6 +1,5 @@
-const BACKEND_URL = "https://coin-flip-app-47mg.onrender.com";
-
-const socket = io(BACKEND_URL, {
+// Automatic domain detection (Render & local host handling)
+const socket = io({
     transports: ['websocket', 'polling'],
     timeout: 10000
 });
@@ -81,8 +80,8 @@ function playSound(type) {
 socket.on('connect', () => {
     console.log("Connected to Render Server:", socket.id);
     const msgBox = document.getElementById('authMsg');
-    if (msgBox && msgBox.innerText.includes("connecting")) {
-        msgBox.innerText = "Server Connected!";
+    if (msgBox && (msgBox.innerText.includes("connecting") || msgBox.innerText.includes("waking up"))) {
+        msgBox.innerText = "Server Connected! Ab OTP bhej sakte hain.";
         msgBox.style.color = "#22c55e";
     }
 });
@@ -95,12 +94,15 @@ socket.on('connect_error', () => {
     }
 });
 
-// Send OTP Request Function
+// Send OTP Request Function (FIXED)
 function requestOtp() {
     initAudio();
-    const email = document.getElementById('authEmail').value.trim();
+    const emailEl = document.getElementById('authEmail');
     const msgBox = document.getElementById('authMsg');
     const sendBtn = document.getElementById('sendOtpBtn');
+
+    if (!emailEl) return;
+    const email = emailEl.value.trim();
 
     if (!email || !email.includes('@')) {
         msgBox.innerText = "Sahi Gmail address enter karein!";
@@ -108,16 +110,31 @@ function requestOtp() {
         return;
     }
 
-    sendBtn.disabled = true;
-    sendBtn.innerText = "Sending...";
+    if (!socket.connected) {
+        msgBox.innerText = "Server connect ho raha hai... 5 sec wait karke fir dabayein!";
+        msgBox.style.color = "#ef4444";
+        return;
+    }
+
+    if (sendBtn) {
+        sendBtn.disabled = true;
+        sendBtn.innerText = "Sending...";
+    }
     msgBox.innerText = "OTP bhej rahe hain...";
     msgBox.style.color = "#facc15";
 
     socket.emit('send_otp', { email }, (res) => {
-        sendBtn.disabled = false;
-        sendBtn.innerText = "Send OTP";
-        msgBox.innerText = res.msg;
-        msgBox.style.color = res.success ? "#22c55e" : "#ef4444";
+        if (sendBtn) {
+            sendBtn.disabled = false;
+            sendBtn.innerText = "Send OTP";
+        }
+        if (res) {
+            msgBox.innerText = res.msg;
+            msgBox.style.color = res.success ? "#22c55e" : "#ef4444";
+        } else {
+            msgBox.innerText = "OTP Bhejne me error aaya!";
+            msgBox.style.color = "#ef4444";
+        }
     });
 }
 
@@ -171,9 +188,13 @@ function onLoginSuccess(userData, adminUpi, username, password) {
 
 // Timer & IST Sync
 socket.on('time_sync', (data) => {
-    document.getElementById('roundIdText').innerText = `#${data.roundId}`;
-    document.getElementById('countdownTimer').innerText = `${data.secondsRemaining}s`;
-    document.getElementById('istTimeText').innerText = `IST Time: ${data.istTime}`;
+    const roundEl = document.getElementById('roundIdText');
+    const timerEl = document.getElementById('countdownTimer');
+    const istEl = document.getElementById('istTimeText');
+    
+    if (roundEl) roundEl.innerText = `#${data.roundId}`;
+    if (timerEl) timerEl.innerText = `${data.secondsRemaining}s`;
+    if (istEl) istEl.innerText = `IST Time: ${data.istTime}`;
 });
 
 // Coin Spin Animation + Spin Sound
@@ -275,7 +296,8 @@ function placeBet(choice) {
 }
 
 function updateQrCode() {
-    const amt = document.getElementById('depAmount').value || 100;
+    const amtEl = document.getElementById('depAmount');
+    const amt = amtEl ? amtEl.value || 100 : 100;
     const qrImg = document.getElementById('depositQrImage');
     const upiString = `upi://pay?pa=${encodeURIComponent(activeUpiId)}&pn=Casino&am=${amt}&cu=INR`;
     
@@ -284,10 +306,13 @@ function updateQrCode() {
     }
 }
 
-document.getElementById('openDepositBtn').addEventListener('click', () => {
-    updateQrCode();
-    document.getElementById('depositModal').style.display = 'flex';
-});
+const depBtn = document.getElementById('openDepositBtn');
+if (depBtn) {
+    depBtn.addEventListener('click', () => {
+        updateQrCode();
+        document.getElementById('depositModal').style.display = 'flex';
+    });
+}
 
 function submitDeposit() {
     const amt = document.getElementById('depAmount').value;
@@ -299,15 +324,19 @@ function submitDeposit() {
     });
 }
 
-document.getElementById('openWithdrawBtn').addEventListener('click', () => {
-    if (!currentUser) return alert("Pehle login karein!");
-    document.getElementById('withdrawModal').style.display = 'flex';
-    fetchUserWithdrawalHistory();
-});
+const wdrBtn = document.getElementById('openWithdrawBtn');
+if (wdrBtn) {
+    wdrBtn.addEventListener('click', () => {
+        if (!currentUser) return alert("Pehle login karein!");
+        document.getElementById('withdrawModal').style.display = 'flex';
+        fetchUserWithdrawalHistory();
+    });
+}
 
 function fetchUserWithdrawalHistory() {
     if (!currentUser) return;
     const container = document.getElementById('userWithdrawalHistory');
+    if (!container) return;
     container.innerHTML = `<p style="text-align:center; color:#64748b; font-size:0.8rem;">Loading...</p>`;
 
     socket.emit('get_user_withdrawals', { username: currentUser.username }, (res) => {
@@ -343,26 +372,29 @@ function submitWithdrawal() {
 
 // SECRET ADMIN TRIGGER: 10 TAPS IN 1.5 SECONDS
 let logoTapTimestamps = [];
-document.getElementById('brandBtn').addEventListener('click', () => {
-    const now = Date.now();
-    logoTapTimestamps.push(now);
-    logoTapTimestamps = logoTapTimestamps.filter(timestamp => now - timestamp <= 1500);
+const brandBtn = document.getElementById('brandBtn');
+if (brandBtn) {
+    brandBtn.addEventListener('click', () => {
+        const now = Date.now();
+        logoTapTimestamps.push(now);
+        logoTapTimestamps = logoTapTimestamps.filter(timestamp => now - timestamp <= 1500);
 
-    if (logoTapTimestamps.length >= 10) {
-        logoTapTimestamps = [];
+        if (logoTapTimestamps.length >= 10) {
+            logoTapTimestamps = [];
 
-        if (currentAdminSecret) {
-            socket.emit('get_admin_data', { adminSecret: currentAdminSecret }, (data) => {
-                renderAdminPanel(data);
-                document.getElementById('adminModal').style.display = 'flex';
-            });
-        } else {
-            document.getElementById('adminPassInput').value = "";
-            document.getElementById('adminAuthMsg').innerText = "";
-            document.getElementById('adminAuthModal').style.display = 'flex';
+            if (currentAdminSecret) {
+                socket.emit('get_admin_data', { adminSecret: currentAdminSecret }, (data) => {
+                    renderAdminPanel(data);
+                    document.getElementById('adminModal').style.display = 'flex';
+                });
+            } else {
+                document.getElementById('adminPassInput').value = "";
+                document.getElementById('adminAuthMsg').innerText = "";
+                document.getElementById('adminAuthModal').style.display = 'flex';
+            }
         }
-    }
-});
+    });
+}
 
 function verifyAdminPassword() {
     const pass = document.getElementById('adminPassInput').value;
