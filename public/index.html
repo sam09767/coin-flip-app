@@ -3,191 +3,147 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Royal Flip 3D Casino</title>
+    <title>Coin Flip Live Casino</title>
     <link rel="stylesheet" href="style.css">
-    <script src="/socket.io/socket.io.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.5.1/dist/confetti.browser.min.js"></script>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 </head>
 <body>
-    <div class="casino-wrapper">
-        <header class="casino-header">
-            <div class="brand" id="adminTrigger" onclick="handleAdminTrigger()">👑 ROYAL FLIP</div>
-            <div class="live-badge">
-                <div class="pulse-dot"></div> LIVE SYNC
-            </div>
-            <div class="wallet-badge">
-                <span>💎</span>
-                <span class="balance-text">₹<span id="balance">0</span></span>
-                <button class="add-cash-btn" onclick="toggleDepositModal(true)">+</button>
-            </div>
-        </header>
 
-        <!-- Live Multiplayer Bets Marquee Ticker -->
-        <div class="live-bets-marquee">
-            <span>🔥 LIVE BETS:</span>
-            <div id="liveBetsFeed" class="marquee-content">
-                <span class="feed-item">Waiting for bets...</span>
-            </div>
-        </div>
-
-        <!-- Auth View -->
-        <div id="authSection" class="bet-panel" style="margin-top: 20px;">
-            <h3 style="text-align: center; margin-bottom: 15px; color: #facc15;">Account Login / Register</h3>
-            <div class="input-group">
-                <input type="text" id="authUsername" placeholder="Username Enter Karein">
-            </div>
-            <div class="input-group">
-                <input type="password" id="authPassword" placeholder="Password Enter Karein">
-            </div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
-                <button class="action-btn success" onclick="handleAuth(false)">Login</button>
-                <button class="action-btn" style="background: #3b82f6; color: white;" onclick="handleAuth(true)">Sign Up</button>
-            </div>
-            <div id="authErrorMsg" class="status-msg" style="color: #ef4444;"></div>
-        </div>
-
-        <!-- Main Casino Game Screen -->
-        <div id="gameSection" style="display: none;">
-            <div class="round-card">
-                <div style="font-size: 0.8rem; font-weight: bold; color: #94a3b8;">
-                    ROUND #<span id="round">--</span>
-                </div>
-                <div class="timer-box">
-                    <small>IST SPIN TIMER</small>
-                    <div><span id="timer">30.0</span>s</div>
-                </div>
-                <div style="font-size: 0.8rem; font-weight: bold; color: #f59e0b;">
-                    STREAK: <span id="streak">0</span>🔥
-                </div>
-            </div>
-
-            <div class="ist-banner">
-                INDIA REAL-TIME (IST): <span id="istClock">--:--:--.--</span>
-            </div>
-
-            <!-- Heavy 3D Metallic Coin Arena -->
-            <div class="coin-arena">
-                <div class="coin-glow"></div>
-                <div class="coin-3d" id="coin3d">
-                    <div class="coin-face face-heads">
-                        HEADS
-                        <span>ROYAL</span>
-                    </div>
-                    <div class="coin-face face-tails">
-                        TAILS
-                        <span>ROYAL</span>
-                    </div>
-                </div>
-            </div>
-
-            <div id="resultDisplay" class="result-text">Timer khatam hone se pehle bet lagayein!</div>
-
-            <!-- Betting Inputs -->
-            <div class="bet-panel">
-                <div class="input-group">
-                    <span>₹</span>
-                    <input type="number" id="betAmount" placeholder="Bet Amount (Min ₹10)" min="10">
-                </div>
-
-                <div class="preset-grid">
-                    <button onclick="setBetAmount(50)">+50</button>
-                    <button onclick="setBetAmount(100)">+100</button>
-                    <button onclick="setBetAmount(500)">+500</button>
-                    <button onclick="setBetAmount('max')">MAX</button>
-                </div>
-
-                <div class="choice-grid">
-                    <button class="btn-choice btn-heads" onclick="placeBet('HEADS')">HEADS (2.0x)</button>
-                    <button class="btn-choice btn-tails" onclick="placeBet('TAILS')">TAILS (2.0x)</button>
-                </div>
-            </div>
-
-            <div id="statusMessage" class="status-msg"></div>
-
-            <div class="history-card">
-                <span>RECENT:</span>
-                <div class="chips-container" id="historyChips"></div>
-            </div>
+<div class="casino-wrapper">
+    <div class="casino-header">
+        <div class="brand" id="brandBtn">COIN FLIP 👑</div>
+        <div class="live-badge"><div class="pulse-dot"></div> LIVE</div>
+        <div class="wallet-badge">
+            <span class="balance-text" id="walletBalance">₹0</span>
+            <button class="add-cash-btn" id="openDepositBtn">+</button>
         </div>
     </div>
 
-    <!-- Deposit Request Modal -->
-    <div id="depositModal" class="modal-overlay">
-        <div class="modal-content">
-            <h3 style="color: #facc15;">Add Money to Wallet</h3>
-            <p style="font-size: 0.8rem; margin: 10px 0; color: #cbd5e1;">
-                Scan QR Code & Pay via UPI
-            </p>
-            <img id="qrImage" src="" alt="UPI QR Code" style="width: 180px; height: 180px; border-radius: 10px; border: 2px solid #facc15;">
-            <p style="font-size: 0.75rem; color: #94a3b8; margin-top: 5px;">
-                UPI ID: <b id="displayUpi">ishaquehaque107@okaxis</b>
-            </p>
-
-            <input type="number" id="depAmountInput" placeholder="Amount Paid (₹)">
-            <input type="text" id="depTxnInput" placeholder="12 Digit UTR / Transaction ID">
-
-            <button class="action-btn success" onclick="submitDeposit()">Submit Request</button>
-            <button class="action-btn danger" onclick="toggleDepositModal(false)">Cancel</button>
+    <div class="live-bets-marquee">
+        <span>BETS:</span>
+        <div class="marquee-content" id="betsFeed">
+            <div class="feed-item">Waiting for bets...</div>
         </div>
     </div>
 
-    <!-- Admin Master Passcode Security Modal -->
-    <div id="authModal" class="modal-overlay">
-        <div class="modal-content">
-            <h3 style="color: #ef4444;">🔒 MASTER SECURITY</h3>
-            <p style="font-size: 0.8rem; color: #94a3b8;">Enter Secret Developer Passcode:</p>
-            <input type="password" id="adminPasscode" placeholder="****" style="text-align: center; font-size: 1.2rem;">
-            <div id="adminPassErr" style="color: #ef4444; font-size: 0.8rem;"></div>
-            <button class="action-btn success" onclick="authenticateAdmin()">Unlock Command Center</button>
-            <button class="action-btn danger" onclick="document.getElementById('authModal').style.display='none'">Cancel</button>
+    <div class="round-card">
+        <div class="timer-box">
+            <small>ROUND ID</small>
+            <div id="roundIdText">#0</div>
+        </div>
+        <div class="timer-box">
+            <small>COUNTDOWN</small>
+            <div id="countdownTimer">30.0s</div>
         </div>
     </div>
 
-    <!-- Developer Admin Command Center Modal -->
-    <div id="adminModal" class="modal-overlay">
-        <div class="modal-content" style="max-width: 450px; text-align: left;">
-            <h3 style="color: #facc15; text-align: center;">👑 DEVELOPER ADMIN PANEL</h3>
-            
-            <div style="margin-top: 15px;">
-                <label style="font-size: 0.8rem;">Change Hidden UPI ID:</label>
-                <input type="text" id="adminUpiInput" placeholder="New UPI ID">
-                <button class="action-btn success" onclick="updateAdminUpi()">Update UPI</button>
-            </div>
+    <div class="ist-banner" id="istTimeText">IST Time: --:--:--</div>
 
-            <div style="margin-top: 15px;">
-                <label style="font-size: 0.8rem;">Force Game Outcome:</label>
-                <div style="display: flex; gap: 5px; margin-top: 5px;">
-                    <button onclick="setForceMode('AUTO')" class="action-btn" style="background:#3b82f6; color:white;">AUTO</button>
-                    <button onclick="setForceMode('HEADS')" class="action-btn" style="background:#eab308; color:black;">FORCE HEADS</button>
-                    <button onclick="setForceMode('TAILS')" class="action-btn" style="background:#64748b; color:white;">FORCE TAILS</button>
-                </div>
-            </div>
-
-            <div style="margin-top: 15px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 10px;">
-                <label style="font-size: 0.8rem; color: #facc15;">Direct Wallet Adjuster:</label>
-                <div style="display: flex; gap: 5px; margin-top: 5px;">
-                    <input type="text" id="targetUser" placeholder="Username" style="width: 40%; margin:0;">
-                    <input type="number" id="targetAmount" placeholder="±Amount" style="width: 35%; margin:0;">
-                    <button class="action-btn success" style="margin:0; width: 25%;" onclick="adjustUserWallet()">Send</button>
-                </div>
-            </div>
-
-            <div style="margin-top: 15px;">
-                <label style="font-size: 0.8rem;">Pending Deposit Requests:</label>
-                <div id="adminDepositList" style="max-height: 120px; overflow-y: auto;"></div>
-            </div>
-
-            <div style="margin-top: 15px; font-size: 0.81rem; background: #0f172a; padding: 10px; border-radius: 8px;">
-                <div>Total Registered Users: <strong id="adminUsersCount">0</strong></div>
-                <div>House Profit: <strong id="adminHouseProfit">₹0</strong></div>
-                <div>Total Bet Volume: <strong id="adminTotalVolume">₹0</strong></div>
-                <div>Active Mode: <strong id="adminCurrentMode">AUTO</strong></div>
-            </div>
-
-            <button class="action-btn danger" onclick="document.getElementById('adminModal').style.display='none'" style="margin-top: 15px;">Close Panel</button>
+    <!-- 3D Coin Arena -->
+    <div class="coin-arena">
+        <div class="coin-glow"></div>
+        <div class="coin-3d" id="coin3d">
+            <div class="coin-face face-heads">H<span>HEADS</span></div>
+            <div class="coin-face face-tails">T<span>TAILS</span></div>
         </div>
     </div>
 
-    <script src="app.js"></script>
+    <div class="result-text" id="resultText">WAITING FOR NEXT SPIN...</div>
+
+    <!-- Betting Panel -->
+    <div class="bet-panel">
+        <div class="input-group">
+            <span>₹</span>
+            <input type="number" id="betAmountInput" placeholder="Enter Amount (Min ₹10)" value="100">
+        </div>
+        <div class="preset-grid">
+            <button onclick="setBetAmount(50)">+50</button>
+            <button onclick="setBetAmount(100)">+100</button>
+            <button onclick="setBetAmount(500)">+500</button>
+            <button onclick="setBetAmount(1000)">+1000</button>
+        </div>
+        <div class="choice-grid">
+            <button class="btn-choice btn-heads" onclick="placeBet('HEADS')">BET HEADS (2x)</button>
+            <button class="btn-choice btn-tails" onclick="placeBet('TAILS')">BET TAILS (2x)</button>
+        </div>
+        <div class="status-msg" id="statusMsg"></div>
+    </div>
+
+    <!-- History Chips -->
+    <div class="history-card">
+        <span>HISTORY:</span>
+        <div class="chips-container" id="historyChips"></div>
+    </div>
+</div>
+
+<!-- Auth Modal (Login / Signup) -->
+<div class="modal-overlay" id="authModal" style="display:flex;">
+    <div class="modal-content">
+        <h2 style="color:#facc15; margin-bottom:15px;" id="authTitle">LOGIN TO PLAY</h2>
+        <input type="text" id="authUsername" placeholder="Username">
+        <input type="password" id="authPassword" placeholder="Password">
+        <button class="action-btn success" onclick="submitAuth(false)" id="loginBtn">Login</button>
+        <button class="action-btn" style="background:#3b82f6; color:white;" onclick="submitAuth(true)" id="signupBtn">Create Account (Bonus ₹100)</button>
+        <div class="status-msg" id="authMsg"></div>
+    </div>
+</div>
+
+<!-- Deposit Modal -->
+<div class="modal-overlay" id="depositModal">
+    <div class="modal-content">
+        <h2 style="color:#22c55e;">ADD CASH</h2>
+        <p style="font-size:0.8rem; margin:10px 0; color:#cbd5e1;">Pay to UPI: <strong id="adminUpiText" style="color:#facc15;">loading...</strong></p>
+        <input type="number" id="depAmount" placeholder="Enter Amount (₹)">
+        <input type="text" id="depTxnId" placeholder="Transaction/UTR ID">
+        <button class="action-btn success" onclick="submitDeposit()">Submit Deposit</button>
+        <button class="action-btn danger" onclick="closeModal('depositModal')">Close</button>
+    </div>
+</div>
+
+<!-- Admin Password Prompt Modal -->
+<div class="modal-overlay" id="adminAuthModal">
+    <div class="modal-content">
+        <h2 style="color:#facc15; margin-bottom:15px;">🔒 ADMIN ACCESS</h2>
+        <input type="password" id="adminPassInput" placeholder="Enter Admin Secret Pass">
+        <button class="action-btn success" onclick="verifyAdminPassword()">Unlock Admin Panel</button>
+        <button class="action-btn danger" onclick="closeModal('adminAuthModal')">Cancel</button>
+        <div class="status-msg" id="adminAuthMsg"></div>
+    </div>
+</div>
+
+<!-- Admin Panel Modal -->
+<div class="modal-overlay" id="adminModal">
+    <div class="modal-content" style="max-width:500px; text-align:left;">
+        <h2 style="color:#facc15; text-align:center;">ADMIN CONTROL PANEL</h2>
+        
+        <div style="background:#0f172a; padding:10px; border-radius:8px; margin:10px 0; font-size:0.85rem;">
+            <div>House Profit: <strong id="adminProfit" style="color:#22c55e;">₹0</strong></div>
+            <div>Total Volume: <strong id="adminVolume" style="color:#38bdf8;">₹0</strong></div>
+        </div>
+
+        <h4 style="color:#38bdf8; margin-top:10px;">Outcome Control (Rigging):</h4>
+        <div style="display:flex; gap:5px; margin-bottom:10px;">
+            <button class="action-btn" style="background:#eab308; padding:6px;" onclick="setAdminMode('HEADS')">Force HEADS</button>
+            <button class="action-btn" style="background:#64748b; padding:6px;" onclick="setAdminMode('TAILS')">Force TAILS</button>
+            <button class="action-btn" style="background:#22c55e; padding:6px;" onclick="setAdminMode('AUTO')">AUTO Mode</button>
+        </div>
+
+        <h4 style="color:#38bdf8;">Change Admin UPI:</h4>
+        <div style="display:flex; gap:5px; margin-bottom:10px;">
+            <input type="text" id="newUpiInput" placeholder="New UPI ID" style="margin:0;">
+            <button class="action-btn success" style="width:100px; margin:0;" onclick="updateAdminUpi()">Update</button>
+        </div>
+
+        <h4 style="color:#38bdf8;">Pending Deposits:</h4>
+        <div id="adminDepositsContainer" style="max-height:120px; overflow-y:auto;"></div>
+
+        <h4 style="color:#38bdf8; margin-top:10px;">All Users (Live Status & Balance):</h4>
+        <div id="adminUsersContainer" style="max-height:150px; overflow-y:auto;"></div>
+
+        <button class="action-btn danger" onclick="closeModal('adminModal')" style="margin-top:15px;">Close Admin Panel</button>
+    </div>
+</div>
+
+<script src="app.js"></script>
 </body>
 </html>
