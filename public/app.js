@@ -1,24 +1,29 @@
-const socket = io();
+const BACKEND_URL = "https://coin-flip-app-47mg.onrender.com";
+
+const socket = io(BACKEND_URL, {
+    transports: ['websocket', 'polling'],
+    timeout: 10000
+});
 
 let currentUser = null;
 let currentRotation = 0;
 let currentAdminSecret = null;
 
-// Socket Status Listeners (Fix for frozen screen)
+// Socket Status Listeners
 socket.on('connect', () => {
-    console.log("Connected to server:", socket.id);
+    console.log("Connected to Render Backend:", socket.id);
     const msgBox = document.getElementById('authMsg');
     if (msgBox && msgBox.innerText.includes("connecting")) {
-        msgBox.innerText = "Server Connected! Ab Login / Create Account dabayein.";
+        msgBox.innerText = "Server Connected! Ab Login / Create Account click karein.";
         msgBox.style.color = "#22c55e";
     }
 });
 
 socket.on('connect_error', (err) => {
-    console.error("Socket Error:", err);
+    console.error("Socket Connection Error:", err);
     const msgBox = document.getElementById('authMsg');
     if (msgBox) {
-        msgBox.innerText = "Server se connect nahi ho pa raha! Server restart hone ka wait karein.";
+        msgBox.innerText = "Backend Server waking up... 15-20 sec wait karke click karein!";
         msgBox.style.color = "#ef4444";
     }
 });
@@ -38,7 +43,7 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-// Auth Submit Handler (Guaranteed Timeout & Status Feedback)
+// Auth Submit Handler
 function submitAuth(isSignUp) {
     const uInput = document.getElementById('authUsername').value.trim();
     const pInput = document.getElementById('authPassword').value.trim();
@@ -51,7 +56,7 @@ function submitAuth(isSignUp) {
     }
 
     if (!socket.connected) {
-        msgBox.innerText = "Server connecting... 5-10 sec ruk kar dobara click karein!";
+        msgBox.innerText = "Server connecting... 5 sec baad dobara try karein!";
         msgBox.style.color = "#facc15";
         return;
     }
@@ -61,13 +66,12 @@ function submitAuth(isSignUp) {
 
     let hasResponded = false;
 
-    // Timeout handling (8 seconds)
     const responseTimeout = setTimeout(() => {
         if (!hasResponded) {
-            msgBox.innerText = "Server Response Timeout! Ek baar page refresh karein.";
+            msgBox.innerText = "Server Response Timeout! Ek baar page refresh karke try karein.";
             msgBox.style.color = "#ef4444";
         }
-    }, 8000);
+    }, 10000);
 
     socket.emit('user_login', { username: uInput, password: pInput, isSignUp }, (res) => {
         hasResponded = true;
@@ -88,9 +92,18 @@ function onLoginSuccess(userData, adminUpi, username, password) {
     currentUser = userData;
     localStorage.setItem('coin_app_user', JSON.stringify({ username, password }));
     
-    document.getElementById('authModal').style.display = 'none';
-    document.getElementById('walletBalance').innerText = `₹${userData.balance}`;
-    document.getElementById('adminUpiText').innerText = adminUpi;
+    // Forcefully Hide Login Modal Overlay
+    const authModal = document.getElementById('authModal');
+    if (authModal) {
+        authModal.style.setProperty('display', 'none', 'important');
+    }
+
+    // Update Wallet UI
+    const balEl = document.getElementById('walletBalance');
+    if (balEl) balEl.innerText = `₹${userData.balance}`;
+    
+    const upiEl = document.getElementById('adminUpiText');
+    if (upiEl) upiEl.innerText = adminUpi;
 }
 
 // Timer & IST Sync Listener
@@ -113,11 +126,13 @@ socket.on('round_result', (data) => {
         currentRotation += (data.outcome === 'HEADS' ? 0 : 180) - (currentRotation % 360);
     }
 
-    coin.style.transform = `rotateY(${currentRotation}deg)`;
+    if (coin) coin.style.transform = `rotateY(${currentRotation}deg)`;
 
     setTimeout(() => {
-        document.getElementById('resultText').innerText = `RESULT: ${data.outcome}`;
-        document.getElementById('statusMsg').innerText = "";
+        const resText = document.getElementById('resultText');
+        if (resText) resText.innerText = `RESULT: ${data.outcome}`;
+        const stMsg = document.getElementById('statusMsg');
+        if (stMsg) stMsg.innerText = "";
     }, 1300);
 
     renderHistory(data.history);
@@ -126,15 +141,18 @@ socket.on('round_result', (data) => {
 // Real-Time Socket Listeners
 socket.on('user_sync', (user) => {
     currentUser = user;
-    document.getElementById('walletBalance').innerText = `₹${user.balance}`;
+    const balEl = document.getElementById('walletBalance');
+    if (balEl) balEl.innerText = `₹${user.balance}`;
 });
 
 socket.on('upi_changed', (upi) => {
-    document.getElementById('adminUpiText').innerText = upi;
+    const upiEl = document.getElementById('adminUpiText');
+    if (upiEl) upiEl.innerText = upi;
 });
 
 socket.on('live_bet_feed', (feed) => {
     const feedBox = document.getElementById('betsFeed');
+    if (!feedBox) return;
     if (!feed || feed.length === 0) {
         feedBox.innerHTML = `<div class="feed-item">Waiting for bets...</div>`;
     } else {
@@ -146,14 +164,14 @@ socket.on('history_update', renderHistory);
 
 function renderHistory(hist) {
     const container = document.getElementById('historyChips');
-    if (!hist) return;
+    if (!container || !hist) return;
     container.innerHTML = hist.map(h => `<div class="chip ${h.toLowerCase()}">${h[0]}</div>`).join('');
 }
 
 // Betting Handlers
 function setBetAmount(amt) {
     const input = document.getElementById('betAmountInput');
-    input.value = Number(input.value || 0) + amt;
+    if (input) input.value = Number(input.value || 0) + amt;
 }
 
 function placeBet(choice) {
@@ -162,15 +180,20 @@ function placeBet(choice) {
     
     socket.emit('place_bet', { username: currentUser.username, choice, amount: amt }, (res) => {
         const msg = document.getElementById('statusMsg');
-        msg.innerText = res.msg;
-        msg.style.color = res.success ? "#22c55e" : "#ef4444";
+        if (msg) {
+            msg.innerText = res.msg;
+            msg.style.color = res.success ? "#22c55e" : "#ef4444";
+        }
     });
 }
 
 // Deposit Handlers
-document.getElementById('openDepositBtn').addEventListener('click', () => {
-    document.getElementById('depositModal').style.display = 'flex';
-});
+const openDepBtn = document.getElementById('openDepositBtn');
+if (openDepBtn) {
+    openDepBtn.addEventListener('click', () => {
+        document.getElementById('depositModal').style.display = 'flex';
+    });
+}
 
 function submitDeposit() {
     const amt = document.getElementById('depAmount').value;
@@ -185,27 +208,30 @@ function submitDeposit() {
 // SECRET ADMIN TRIGGER: 10 TAPS IN 1.5 SECONDS
 let logoTapTimestamps = [];
 
-document.getElementById('brandBtn').addEventListener('click', () => {
-    const now = Date.now();
-    logoTapTimestamps.push(now);
+const brandBtn = document.getElementById('brandBtn');
+if (brandBtn) {
+    brandBtn.addEventListener('click', () => {
+        const now = Date.now();
+        logoTapTimestamps.push(now);
 
-    logoTapTimestamps = logoTapTimestamps.filter(timestamp => now - timestamp <= 1500);
+        logoTapTimestamps = logoTapTimestamps.filter(timestamp => now - timestamp <= 1500);
 
-    if (logoTapTimestamps.length >= 10) {
-        logoTapTimestamps = [];
+        if (logoTapTimestamps.length >= 10) {
+            logoTapTimestamps = [];
 
-        if (currentAdminSecret) {
-            socket.emit('get_admin_data', { adminSecret: currentAdminSecret }, (data) => {
-                renderAdminPanel(data);
-                document.getElementById('adminModal').style.display = 'flex';
-            });
-        } else {
-            document.getElementById('adminPassInput').value = "";
-            document.getElementById('adminAuthMsg').innerText = "";
-            document.getElementById('adminAuthModal').style.display = 'flex';
+            if (currentAdminSecret) {
+                socket.emit('get_admin_data', { adminSecret: currentAdminSecret }, (data) => {
+                    renderAdminPanel(data);
+                    document.getElementById('adminModal').style.display = 'flex';
+                });
+            } else {
+                document.getElementById('adminPassInput').value = "";
+                document.getElementById('adminAuthMsg').innerText = "";
+                document.getElementById('adminAuthModal').style.display = 'flex';
+            }
         }
-    }
-});
+    });
+}
 
 function verifyAdminPassword() {
     const pass = document.getElementById('adminPassInput').value;
@@ -218,8 +244,10 @@ function verifyAdminPassword() {
             renderAdminPanel(res.data);
             document.getElementById('adminModal').style.display = 'flex';
         } else {
-            msgBox.innerText = (res && res.msg) ? res.msg : "Incorrect Password!";
-            msgBox.style.color = "#ef4444";
+            if (msgBox) {
+                msgBox.innerText = (res && res.msg) ? res.msg : "Incorrect Password!";
+                msgBox.style.color = "#ef4444";
+            }
         }
     });
 }
@@ -292,5 +320,6 @@ function addMoney(username) {
 }
 
 function closeModal(id) {
-    document.getElementById(id).style.display = 'none';
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
 }
