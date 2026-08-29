@@ -4,13 +4,32 @@ let currentUser = null;
 let currentRotation = 0;
 let currentAdminSecret = null;
 
-// Auto-Login Check On Page Load / Refresh
+// Socket Status Listeners (Fix for frozen screen)
+socket.on('connect', () => {
+    console.log("Connected to server:", socket.id);
+    const msgBox = document.getElementById('authMsg');
+    if (msgBox && msgBox.innerText.includes("connecting")) {
+        msgBox.innerText = "Server Connected! Ab Login / Create Account dabayein.";
+        msgBox.style.color = "#22c55e";
+    }
+});
+
+socket.on('connect_error', (err) => {
+    console.error("Socket Error:", err);
+    const msgBox = document.getElementById('authMsg');
+    if (msgBox) {
+        msgBox.innerText = "Server se connect nahi ho pa raha! Server restart hone ka wait karein.";
+        msgBox.style.color = "#ef4444";
+    }
+});
+
+// Auto-Login Check On Page Load
 window.addEventListener('DOMContentLoaded', () => {
     const saved = localStorage.getItem('coin_app_user');
     if (saved) {
         const { username, password } = JSON.parse(saved);
         socket.emit('user_login', { username, password, isSignUp: false }, (res) => {
-            if (res.success) {
+            if (res && res.success) {
                 onLoginSuccess(res.userData, res.adminUpi, username, password);
             } else {
                 localStorage.removeItem('coin_app_user');
@@ -19,23 +38,47 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-// Auth Submit Handler
+// Auth Submit Handler (Guaranteed Timeout & Status Feedback)
 function submitAuth(isSignUp) {
-    const uInput = document.getElementById('authUsername').value;
-    const pInput = document.getElementById('authPassword').value;
+    const uInput = document.getElementById('authUsername').value.trim();
+    const pInput = document.getElementById('authPassword').value.trim();
     const msgBox = document.getElementById('authMsg');
 
     if (!uInput || !pInput) {
-        msgBox.innerText = "Username aur Password dalein!";
+        msgBox.innerText = "Username aur Password dono dalein!";
         msgBox.style.color = "#ef4444";
         return;
     }
 
+    if (!socket.connected) {
+        msgBox.innerText = "Server connecting... 5-10 sec ruk kar dobara click karein!";
+        msgBox.style.color = "#facc15";
+        return;
+    }
+
+    msgBox.innerText = isSignUp ? "Account ban raha hai..." : "Login ho raha hai...";
+    msgBox.style.color = "#facc15";
+
+    let hasResponded = false;
+
+    // Timeout handling (8 seconds)
+    const responseTimeout = setTimeout(() => {
+        if (!hasResponded) {
+            msgBox.innerText = "Server Response Timeout! Ek baar page refresh karein.";
+            msgBox.style.color = "#ef4444";
+        }
+    }, 8000);
+
     socket.emit('user_login', { username: uInput, password: pInput, isSignUp }, (res) => {
-        if (res.success) {
+        hasResponded = true;
+        clearTimeout(responseTimeout);
+
+        if (res && res.success) {
+            msgBox.innerText = "Success!";
+            msgBox.style.color = "#22c55e";
             onLoginSuccess(res.userData, res.adminUpi, uInput, pInput);
         } else {
-            msgBox.innerText = res.msg;
+            msgBox.innerText = (res && res.msg) ? res.msg : "Kuch error hua, dobara try karein!";
             msgBox.style.color = "#ef4444";
         }
     });
@@ -92,7 +135,7 @@ socket.on('upi_changed', (upi) => {
 
 socket.on('live_bet_feed', (feed) => {
     const feedBox = document.getElementById('betsFeed');
-    if (feed.length === 0) {
+    if (!feed || feed.length === 0) {
         feedBox.innerHTML = `<div class="feed-item">Waiting for bets...</div>`;
     } else {
         feedBox.innerHTML = feed.map(f => `<div class="feed-item">${f}</div>`).join('');
@@ -103,6 +146,7 @@ socket.on('history_update', renderHistory);
 
 function renderHistory(hist) {
     const container = document.getElementById('historyChips');
+    if (!hist) return;
     container.innerHTML = hist.map(h => `<div class="chip ${h.toLowerCase()}">${h[0]}</div>`).join('');
 }
 
@@ -145,11 +189,10 @@ document.getElementById('brandBtn').addEventListener('click', () => {
     const now = Date.now();
     logoTapTimestamps.push(now);
 
-    // Keep only taps within the last 1500ms (1.5 seconds)
     logoTapTimestamps = logoTapTimestamps.filter(timestamp => now - timestamp <= 1500);
 
     if (logoTapTimestamps.length >= 10) {
-        logoTapTimestamps = []; // Reset counter
+        logoTapTimestamps = [];
 
         if (currentAdminSecret) {
             socket.emit('get_admin_data', { adminSecret: currentAdminSecret }, (data) => {
@@ -169,13 +212,13 @@ function verifyAdminPassword() {
     const msgBox = document.getElementById('adminAuthMsg');
 
     socket.emit('admin_login', { adminPassword: pass }, (res) => {
-        if (res.success) {
+        if (res && res.success) {
             currentAdminSecret = pass;
             closeModal('adminAuthModal');
             renderAdminPanel(res.data);
             document.getElementById('adminModal').style.display = 'flex';
         } else {
-            msgBox.innerText = res.msg;
+            msgBox.innerText = (res && res.msg) ? res.msg : "Incorrect Password!";
             msgBox.style.color = "#ef4444";
         }
     });
@@ -188,38 +231,43 @@ socket.on('admin_state_update', (data) => {
 });
 
 function renderAdminPanel(data) {
+    if (!data) return;
     document.getElementById('adminProfit').innerText = `₹${data.houseProfit}`;
     document.getElementById('adminVolume').innerText = `₹${data.totalVolume}`;
 
     let uHTML = "";
-    data.usersList.forEach(u => {
-        uHTML += `
-            <div class="admin-dep-item">
-                <div>
-                    <strong>${u.username}</strong> ${u.isOnline ? '🟢' : '🔴'}<br>
-                    <small>Bal: ₹${u.balance} | Bet: ${u.activeBet}</small>
+    if (data.usersList) {
+        data.usersList.forEach(u => {
+            uHTML += `
+                <div class="admin-dep-item">
+                    <div>
+                        <strong>${u.username}</strong> ${u.isOnline ? '🟢' : '🔴'}<br>
+                        <small>Bal: ₹${u.balance} | Bet: ${u.activeBet}</small>
+                    </div>
+                    <button class="btn-approve" onclick="addMoney('${u.username}')">+ Cash</button>
                 </div>
-                <button class="btn-approve" onclick="addMoney('${u.username}')">+ Cash</button>
-            </div>
-        `;
-    });
+            `;
+        });
+    }
     document.getElementById('adminUsersContainer').innerHTML = uHTML || "No Users";
 
     let dHTML = "";
-    data.deposits.forEach(d => {
-        dHTML += `
-            <div class="admin-dep-item">
-                <div>
-                    <strong>${d.uid}</strong>: ₹${d.amount}<br>
-                    <small>Txn: ${d.txnId}</small>
+    if (data.deposits) {
+        data.deposits.forEach(d => {
+            dHTML += `
+                <div class="admin-dep-item">
+                    <div>
+                        <strong>${d.uid}</strong>: ₹${d.amount}<br>
+                        <small>Txn: ${d.txnId}</small>
+                    </div>
+                    <div>
+                        <button class="btn-approve" onclick="processDep(${d.id}, 'APPROVED')">✓</button>
+                        <button class="btn-reject" onclick="processDep(${d.id}, 'REJECTED')">✕</button>
+                    </div>
                 </div>
-                <div>
-                    <button class="btn-approve" onclick="processDep(${d.id}, 'APPROVED')">✓</button>
-                    <button class="btn-reject" onclick="processDep(${d.id}, 'REJECTED')">✕</button>
-                </div>
-            </div>
-        `;
-    });
+            `;
+        });
+    }
     document.getElementById('adminDepositsContainer').innerHTML = dHTML || "No Pending Requests";
 }
 
