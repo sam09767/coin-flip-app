@@ -6,6 +6,68 @@
     <title>Coin Flip Live Casino</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <style>
+        /* Win Overlay Popup Animation */
+        .win-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            animation: popIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        .win-card {
+            background: linear-gradient(135deg, #1e293b, #0f172a);
+            border: 3px solid #facc15;
+            border-radius: 20px;
+            padding: 30px;
+            text-align: center;
+            box-shadow: 0 0 30px rgba(250, 204, 21, 0.5);
+        }
+        .win-title {
+            font-size: 2.5rem;
+            color: #facc15;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            animation: pulseText 0.8s infinite alternate;
+        }
+        .win-amount {
+            font-size: 2rem;
+            color: #22c55e;
+            margin: 15px 0;
+            font-weight: bold;
+        }
+        @keyframes popIn {
+            0% { transform: scale(0.3); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        @keyframes pulseText {
+            0% { transform: scale(1); }
+            100% { transform: scale(1.08); }
+        }
+        .qr-box {
+            background: #fff;
+            padding: 10px;
+            border-radius: 12px;
+            display: inline-block;
+            margin: 15px 0;
+        }
+        .qr-box img {
+            width: 180px;
+            height: 180px;
+            display: block;
+        }
+        .action-btn.withdraw-btn {
+            background: #eab308;
+            color: #000;
+            font-weight: bold;
+            margin-top: 5px;
+        }
+    </style>
 </head>
 <body>
 
@@ -17,6 +79,10 @@
             <span class="balance-text" id="walletBalance">₹0</span>
             <button class="add-cash-btn" id="openDepositBtn">+</button>
         </div>
+    </div>
+
+    <div style="text-align: right; padding: 0 15px;">
+        <button class="action-btn withdraw-btn" style="width: auto; padding: 6px 15px; font-size: 0.8rem;" id="openWithdrawBtn">Withdrawal (Min ₹300)</button>
     </div>
 
     <div class="live-bets-marquee">
@@ -76,7 +142,16 @@
     </div>
 </div>
 
-<!-- Auth Modal (Login / Signup) -->
+<!-- Win Animation Popup -->
+<div class="win-overlay" id="winOverlay">
+    <div class="win-card">
+        <div class="win-title">🎉 YOU WON! 🎉</div>
+        <div class="win-amount" id="winAmountText">+₹0</div>
+        <button class="action-btn success" onclick="closeModal('winOverlay')">CLAIM & CONTINUE</button>
+    </div>
+</div>
+
+<!-- Auth Modal -->
 <div class="modal-overlay" id="authModal" style="display:flex;">
     <div class="modal-content">
         <h2 style="color:#facc15; margin-bottom:15px;" id="authTitle">LOGIN TO PLAY</h2>
@@ -88,19 +163,37 @@
     </div>
 </div>
 
-<!-- Deposit Modal -->
+<!-- Deposit Modal (QR Code ONLY & Min ₹100) -->
 <div class="modal-overlay" id="depositModal">
     <div class="modal-content">
         <h2 style="color:#22c55e;">ADD CASH</h2>
-        <p style="font-size:0.8rem; margin:10px 0; color:#cbd5e1;">Pay to UPI: <strong id="adminUpiText" style="color:#facc15;">loading...</strong></p>
-        <input type="number" id="depAmount" placeholder="Enter Amount (₹)">
-        <input type="text" id="depTxnId" placeholder="Transaction/UTR ID">
+        <p style="font-size:0.85rem; margin-top:5px; color:#facc15;">Minimum Deposit: <strong>₹100</strong></p>
+        
+        <div class="qr-box">
+            <img id="depositQrImage" src="" alt="Scan QR Code to Pay">
+        </div>
+        <p style="font-size:0.75rem; color:#cbd5e1;">QR Scan karke payment karein aur UTR/Txn ID niche dalein</p>
+
+        <input type="number" id="depAmount" placeholder="Enter Amount (Min ₹100)" value="100" oninput="updateQrCode()">
+        <input type="text" id="depTxnId" placeholder="Transaction / UTR ID">
         <button class="action-btn success" onclick="submitDeposit()">Submit Deposit</button>
         <button class="action-btn danger" onclick="closeModal('depositModal')">Close</button>
     </div>
 </div>
 
-<!-- Admin Password Prompt Modal -->
+<!-- Withdrawal Modal (Min ₹300) -->
+<div class="modal-overlay" id="withdrawModal">
+    <div class="modal-content">
+        <h2 style="color:#eab308;">WITHDRAW MONEY</h2>
+        <p style="font-size:0.85rem; margin-top:5px; color:#facc15;">Minimum Withdrawal: <strong>₹300</strong></p>
+        <input type="number" id="wdrAmount" placeholder="Enter Amount (Min ₹300)" value="300">
+        <input type="text" id="wdrUpi" placeholder="Enter UPI ID / Bank Details">
+        <button class="action-btn success" onclick="submitWithdrawal()">Request Withdrawal</button>
+        <button class="action-btn danger" onclick="closeModal('withdrawModal')">Close</button>
+    </div>
+</div>
+
+<!-- Admin Password Modal -->
 <div class="modal-overlay" id="adminAuthModal">
     <div class="modal-content">
         <h2 style="color:#facc15; margin-bottom:15px;">🔒 ADMIN ACCESS</h2>
@@ -111,7 +204,7 @@
     </div>
 </div>
 
-<!-- Admin Panel Modal -->
+<!-- Admin Control Panel -->
 <div class="modal-overlay" id="adminModal">
     <div class="modal-content" style="max-width:500px; text-align:left;">
         <h2 style="color:#facc15; text-align:center;">ADMIN CONTROL PANEL</h2>
@@ -121,7 +214,7 @@
             <div>Total Volume: <strong id="adminVolume" style="color:#38bdf8;">₹0</strong></div>
         </div>
 
-        <h4 style="color:#38bdf8; margin-top:10px;">Outcome Control (Rigging):</h4>
+        <h4 style="color:#38bdf8; margin-top:10px;">Outcome Control:</h4>
         <div style="display:flex; gap:5px; margin-bottom:10px;">
             <button class="action-btn" style="background:#eab308; padding:6px;" onclick="setAdminMode('HEADS')">Force HEADS</button>
             <button class="action-btn" style="background:#64748b; padding:6px;" onclick="setAdminMode('TAILS')">Force TAILS</button>
@@ -135,10 +228,13 @@
         </div>
 
         <h4 style="color:#38bdf8;">Pending Deposits:</h4>
-        <div id="adminDepositsContainer" style="max-height:120px; overflow-y:auto;"></div>
+        <div id="adminDepositsContainer" style="max-height:100px; overflow-y:auto;"></div>
 
-        <h4 style="color:#38bdf8; margin-top:10px;">All Users (Live Status & Balance):</h4>
-        <div id="adminUsersContainer" style="max-height:150px; overflow-y:auto;"></div>
+        <h4 style="color:#38bdf8; margin-top:10px;">Pending Withdrawals:</h4>
+        <div id="adminWithdrawalsContainer" style="max-height:100px; overflow-y:auto;"></div>
+
+        <h4 style="color:#38bdf8; margin-top:10px;">All Users Status:</h4>
+        <div id="adminUsersContainer" style="max-height:120px; overflow-y:auto;"></div>
 
         <button class="action-btn danger" onclick="closeModal('adminModal')" style="margin-top:15px;">Close Admin Panel</button>
     </div>
