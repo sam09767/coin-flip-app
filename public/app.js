@@ -48,7 +48,7 @@ function playSound(type) {
             osc.stop(now + 0.3);
         } else if (type === 'win') {
             // Winning Fanfare Tones
-            const notes = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6
+            const notes = [523.25, 659.25, 783.99, 1046.50];
             notes.forEach((freq, index) => {
                 const noteOsc = audioCtx.createOscillator();
                 const noteGain = audioCtx.createGain();
@@ -210,6 +210,14 @@ socket.on('bet_settled', (data) => {
     }, 1300);
 });
 
+// Admin Payment Notification Trigger
+socket.on('admin_payment_notification', (data) => {
+    playSound('win');
+    document.getElementById('notifyTitle').innerText = data.title;
+    document.getElementById('notifyMessage').innerText = data.message;
+    document.getElementById('notifyOverlay').style.display = 'flex';
+});
+
 socket.on('user_sync', (user) => {
     currentUser = user;
     const balEl = document.getElementById('walletBalance');
@@ -285,10 +293,36 @@ function submitDeposit() {
     });
 }
 
-// Withdrawal Handlers (Min ₹300)
+// Withdrawal Modal & Fetch History
 document.getElementById('openWithdrawBtn').addEventListener('click', () => {
+    if (!currentUser) return alert("Pehle login karein!");
     document.getElementById('withdrawModal').style.display = 'flex';
+    fetchUserWithdrawalHistory();
 });
+
+function fetchUserWithdrawalHistory() {
+    if (!currentUser) return;
+    const container = document.getElementById('userWithdrawalHistory');
+    container.innerHTML = `<p style="text-align:center; color:#64748b; font-size:0.8rem;">Loading...</p>`;
+
+    socket.emit('get_user_withdrawals', { username: currentUser.username }, (res) => {
+        if (res && res.success && res.history.length > 0) {
+            container.innerHTML = res.history.reverse().map(item => `
+                <div class="history-item">
+                    <div>
+                        <strong>₹${item.amount}</strong><br>
+                        <small style="color:#94a3b8">${item.time}</small>
+                    </div>
+                    <div>
+                        <span class="badge-${item.status.toLowerCase()}">${item.status}</span>
+                    </div>
+                </div>
+            `).join('');
+        } else {
+            container.innerHTML = `<p style="text-align:center; color:#64748b; font-size:0.8rem;">Koi withdrawal history nahi hai.</p>`;
+        }
+    });
+}
 
 function submitWithdrawal() {
     const amt = document.getElementById('wdrAmount').value;
@@ -296,7 +330,9 @@ function submitWithdrawal() {
 
     socket.emit('request_withdrawal', { username: currentUser.username, amount: amt, upiDetails: upi }, (res) => {
         alert(res.msg);
-        if (res.success) closeModal('withdrawModal');
+        if (res.success) {
+            fetchUserWithdrawalHistory();
+        }
     });
 }
 
