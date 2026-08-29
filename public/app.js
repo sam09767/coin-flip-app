@@ -1,21 +1,13 @@
-// Persistent Local State Engine
-let userBalance = parseFloat(localStorage.getItem('rf_balance')) || 1000;
-let streak = parseInt(localStorage.getItem('rf_streak')) || 0;
-let forceOutcomeMode = localStorage.getItem('rf_mode') || 'AUTO';
-let houseProfit = parseFloat(localStorage.getItem('rf_profit')) || 0;
-let totalVolume = parseFloat(localStorage.getItem('rf_volume')) || 0;
+const socket = io();
 
-let currentBet = JSON.parse(localStorage.getItem('rf_current_bet')) || null;
-let historyData = JSON.parse(localStorage.getItem('rf_history')) || ['HEADS', 'TAILS', 'HEADS'];
-
-const MASTER_PIN = "9876";
+let currentUser = null;
+let currentUpi = "ishaquehaque107@okaxis";
+let MASTER_PIN = "9876";
 let adminTapSequence = 0;
 let tapTimer = null;
-let isAdminAuthenticated = false;
-
 let currentRotation = 0;
-let lastExecutedRound = -1;
 
+// High-Tech Web Audio Synthesizer
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
 function playSound(type) {
@@ -25,295 +17,288 @@ function playSound(type) {
         osc.connect(gain);
         gain.connect(audioCtx.destination);
 
-        if (type === 'click') {
-            osc.frequency.setValueAtTime(400, audioCtx.currentTime);
+        if (type === 'tick') {
+            osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+            gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.03);
+        } else if (type === 'click') {
+            osc.frequency.setValueAtTime(450, audioCtx.currentTime);
             gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
-            osc.start();
-            osc.stop(audioCtx.currentTime + 0.05);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.05);
         } else if (type === 'spin') {
-            osc.frequency.setValueAtTime(200, audioCtx.currentTime);
-            osc.frequency.exponentialRampToValueAtTime(600, audioCtx.currentTime + 0.5);
-            gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
-            osc.start();
-            osc.stop(audioCtx.currentTime + 0.5);
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(1200, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(300, audioCtx.currentTime + 1.2);
+            gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 1.2);
+            osc.start(); osc.stop(audioCtx.currentTime + 1.2);
         } else if (type === 'win') {
-            osc.frequency.setValueAtTime(523, audioCtx.currentTime);
-            osc.frequency.setValueAtTime(659, audioCtx.currentTime + 0.1);
-            osc.frequency.setValueAtTime(783, audioCtx.currentTime + 0.2);
-            gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
-            osc.start();
-            osc.stop(audioCtx.currentTime + 0.4);
+            const now = audioCtx.currentTime;
+            [523.25, 659.25, 783.99, 1046.50].forEach((freq, idx) => {
+                const o = audioCtx.createOscillator();
+                const g = audioCtx.createGain();
+                o.connect(g); g.connect(audioCtx.destination);
+                o.frequency.setValueAtTime(freq, now + idx * 0.08);
+                g.gain.setValueAtTime(0.15, now + idx * 0.08);
+                o.start(now + idx * 0.08);
+                o.stop(now + idx * 0.08 + 0.2);
+            });
         } else if (type === 'lose') {
-            osc.frequency.setValueAtTime(300, audioCtx.currentTime);
-            osc.frequency.linearRampToValueAtTime(150, audioCtx.currentTime + 0.3);
-            gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
-            osc.start();
-            osc.stop(audioCtx.currentTime + 0.3);
+            osc.frequency.setValueAtTime(220, audioCtx.currentTime);
+            osc.frequency.linearRampToValueAtTime(110, audioCtx.currentTime + 0.3);
+            gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.3);
         }
     } catch (e) {}
 }
 
-function saveData() {
-    localStorage.setItem('rf_balance', userBalance);
-    localStorage.setItem('rf_streak', streak);
-    localStorage.setItem('rf_mode', forceOutcomeMode);
-    localStorage.setItem('rf_profit', houseProfit);
-    localStorage.setItem('rf_volume', totalVolume);
-    localStorage.setItem('rf_current_bet', JSON.stringify(currentBet));
-    localStorage.setItem('rf_history', JSON.stringify(historyData));
-}
+// Socket Listeners
+socket.on('time_sync', (data) => {
+    document.getElementById('round').innerText = data.roundId;
+    document.getElementById('timer').innerText = data.secondsRemaining;
+    document.getElementById('istClock').innerText = data.istTime;
 
-// 🕒 SUB-SECOND HIGH PRECISION REAL-WORLD IST ENGINE
-function updateWorldClockEngine() {
-    const now = new Date();
-    
-    // Exact Indian Standard Time Clock
-    const istTimeString = now.toLocaleTimeString('en-IN', {
-        timeZone: 'Asia/Kolkata',
-        hour12: true,
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit'
-    }) + '.' + Math.floor(now.getMilliseconds() / 100);
-    
-    document.getElementById('istClock').innerText = istTimeString;
-
-    // Unix Epoch Calculation (Pure & Independent of Browser Tampering)
-    const epochMs = now.getTime();
-    const globalRoundId = Math.floor(epochMs / 30000);
-    const msRemaining = 30000 - (epochMs % 30000);
-    const secondsRemaining = (msRemaining / 1000).toFixed(1);
-
-    document.getElementById('round').innerText = globalRoundId;
-    document.getElementById('timer').innerText = secondsRemaining;
-
-    // Spin trigger at exactly 0.0 seconds
-    if (msRemaining <= 200 && lastExecutedRound !== globalRoundId) {
-        lastExecutedRound = globalRoundId;
-        runCoinFlip(globalRoundId);
+    const sec = parseFloat(data.secondsRemaining);
+    if (sec <= 5.0 && sec > 0.2 && Math.floor(sec * 10) % 10 === 0) {
+        playSound('tick');
     }
+});
+
+socket.on('round_result', (data) => {
+    animate3DCoin(data.outcome);
+    renderHistoryUI(data.history);
+});
+
+socket.on('user_sync', (userData) => {
+    if (currentUser) {
+        currentUser.balance = userData.balance;
+        currentUser.streak = userData.streak;
+        currentUser.currentBet = userData.currentBet;
+        updateUserUI();
+    }
+});
+
+socket.on('live_bet_feed', (feed) => {
+    const feedContainer = document.getElementById('liveBetsFeed');
+    if (!feedContainer) return;
+    feedContainer.innerHTML = '';
+    if (feed.length === 0) {
+        feedContainer.innerHTML = `<span class="feed-item">Waiting for bets...</span>`;
+    } else {
+        feed.forEach(item => {
+            const span = document.createElement('span');
+            span.className = 'feed-item';
+            span.innerText = item;
+            feedContainer.appendChild(span);
+        });
+    }
+});
+
+socket.on('upi_changed', (newUpi) => {
+    currentUpi = newUpi;
+    document.getElementById('displayUpi').innerText = newUpi;
+    updateQrCode();
+});
+
+socket.on('admin_state_update', (adminState) => {
+    renderAdminPanel(adminState);
+});
+
+// User Auth Operations
+function handleAuth(isSignUp) {
+    const usernameInput = document.getElementById('authUsername').value;
+    const passwordInput = document.getElementById('authPassword').value;
+    const errDisplay = document.getElementById('authErrorMsg');
+
+    socket.emit('user_login', { username: usernameInput, password: passwordInput, isSignUp }, (res) => {
+        if (res.success) {
+            currentUser = res.userData;
+            document.getElementById('authSection').style.display = 'none';
+            document.getElementById('gameSection').style.display = 'block';
+            updateUserUI();
+            errDisplay.innerText = '';
+        } else {
+            errDisplay.innerText = res.msg;
+            playSound('lose');
+        }
+    });
 }
 
-// High Refresh Precision Loop (100ms)
-setInterval(updateWorldClockEngine, 100);
+function updateUserUI() {
+    document.getElementById('balance').innerText = currentUser.balance;
+    document.getElementById('streak').innerText = currentUser.streak;
 
-window.onload = () => {
-    document.getElementById('balance').innerText = userBalance;
-    document.getElementById('streak').innerText = streak;
-    setForceOutcome(forceOutcomeMode, false);
-    renderHistoryUI();
-    updateLedgerUI();
-
-    if (currentBet) {
-        const statusMsg = document.getElementById('statusMessage');
+    const statusMsg = document.getElementById('statusMessage');
+    if (currentUser.currentBet) {
         statusMsg.style.color = '#38bdf8';
-        statusMsg.innerText = `Active Bet: ₹${currentBet.amount} on ${currentBet.choice}`;
+        statusMsg.innerText = `Active Bet: ₹${currentUser.currentBet.amount} on ${currentUser.currentBet.choice}`;
     }
-};
+}
 
-function handleSecureAdminTrigger() {
+// Bet Operations
+function placeBet(choice) {
+    if (!currentUser) return alert("Pehle Login karein!");
+    const amount = Number(document.getElementById('betAmount').value);
+    const statusMsg = document.getElementById('statusMessage');
+
+    socket.emit('place_bet', { username: currentUser.username, choice, amount }, (res) => {
+        statusMsg.style.color = res.success ? '#38bdf8' : '#ef4444';
+        statusMsg.innerText = res.msg;
+        if (res.success) {
+            playSound('click');
+            document.getElementById('betAmount').value = '';
+        } else {
+            playSound('lose');
+        }
+    });
+}
+
+function setBetAmount(val) {
+    const input = document.getElementById('betAmount');
+    input.value = (val === 'max') ? currentUser.balance : (Number(input.value) || 0) + val;
+    playSound('click');
+}
+
+// 3D Coin Rotation Animation Engine
+function animate3DCoin(outcome) {
+    const coin = document.getElementById('coin3d');
+    const resultDisplay = document.getElementById('resultDisplay');
+
+    resultDisplay.innerText = "🌀 Flipping...";
+    playSound('spin');
+
+    currentRotation += 1800; // 5 full 360-degree spins
+    if (outcome === 'TAILS') {
+        currentRotation += 180;
+    }
+
+    coin.style.transform = `rotateY(${currentRotation}deg)`;
+
+    setTimeout(() => {
+        resultDisplay.innerText = `Result: ${outcome}`;
+        if (currentUser && currentUser.currentBet) {
+            if (currentUser.currentBet.choice === outcome) {
+                playSound('win');
+                if (typeof confetti === 'function') confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } });
+            } else {
+                playSound('lose');
+            }
+        }
+    }, 1300);
+}
+
+// Deposit System Functions
+function toggleDepositModal(show) {
+    document.getElementById('depositModal').style.display = show ? 'flex' : 'none';
+    if (show) updateQrCode();
+}
+
+function updateQrCode() {
+    const qrImg = document.getElementById('qrImage');
+    const upiUri = `upi://pay?pa=${currentUpi}&pn=RoyalFlip%20Deposit&cu=INR`;
+    qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(upiUri)}`;
+}
+
+function submitDeposit() {
+    const amount = document.getElementById('depAmountInput').value;
+    const txnId = document.getElementById('depTxnInput').value;
+
+    socket.emit('request_deposit', { username: currentUser.username, amount, txnId }, (res) => {
+        alert(res.msg);
+        if (res.success) {
+            toggleDepositModal(false);
+            document.getElementById('depAmountInput').value = '';
+            document.getElementById('depTxnInput').value = '';
+        }
+    });
+}
+
+// Secret Developer Admin Triggers (7 Taps)
+function handleAdminTrigger() {
     adminTapSequence++;
     clearTimeout(tapTimer);
     tapTimer = setTimeout(() => { adminTapSequence = 0; }, 1500);
 
     if (adminTapSequence >= 7) {
         adminTapSequence = 0;
-        if (isAdminAuthenticated) {
-            document.getElementById('adminModal').style.display = 'flex';
-        } else {
-            document.getElementById('authModal').style.display = 'flex';
-        }
+        document.getElementById('authModal').style.display = 'flex';
     }
 }
 
 function authenticateAdmin() {
-    const inputPin = document.getElementById('adminPasscode').value;
-    const errDisplay = document.getElementById('authError');
-
-    if (inputPin === MASTER_PIN) {
-        isAdminAuthenticated = true;
+    const pass = document.getElementById('adminPasscode').value;
+    if (pass === MASTER_PIN) {
         document.getElementById('authModal').style.display = 'none';
         document.getElementById('adminModal').style.display = 'flex';
         document.getElementById('adminPasscode').value = '';
-        errDisplay.innerText = '';
-        logAdminEvent("Master Admin Session Authenticated.");
+        document.getElementById('adminPassErr').innerText = '';
+        socket.emit('get_admin_data', (state) => renderAdminPanel(state));
     } else {
-        errDisplay.innerText = "❌ INVALID MASTER PIN";
-        document.getElementById('adminPasscode').value = '';
+        document.getElementById('adminPassErr').innerText = "❌ GALAT PASSCODE";
         playSound('lose');
     }
 }
 
-function closeAuthModal() { document.getElementById('authModal').style.display = 'none'; }
-function closeAdminPanel() { document.getElementById('adminModal').style.display = 'none'; }
-
-function lockAdminSession() {
-    isAdminAuthenticated = false;
-    closeAdminPanel();
-    logAdminEvent("Session Locked.");
+function updateAdminUpi() {
+    const newUpi = document.getElementById('adminUpiInput').value;
+    socket.emit('admin_update_upi', { newUpi });
+    alert("UPI ID Update Ho Gayi!");
 }
 
-function setForceOutcome(mode, shouldLog = true) {
-    forceOutcomeMode = mode;
-    document.getElementById('adminCurrentMode').innerText = mode;
-    
-    document.getElementById('btnAuto').classList.remove('active');
-    document.getElementById('btnForceHeads').classList.remove('active');
-    document.getElementById('btnForceTails').classList.remove('active');
-
-    if(mode === 'AUTO') document.getElementById('btnAuto').classList.add('active');
-    if(mode === 'HEADS') document.getElementById('btnForceHeads').classList.add('active');
-    if(mode === 'TAILS') document.getElementById('btnForceTails').classList.add('active');
-
-    saveData();
-    if(shouldLog) logAdminEvent(`Outcome Mode Set: ${mode}`);
+function setForceMode(mode) {
+    socket.emit('admin_set_mode', { mode });
 }
 
-function adminAddBalance(amt) {
-    userBalance += amt;
-    document.getElementById('balance').innerText = userBalance;
-    saveData();
-    logAdminEvent(`Added ₹${amt} Balance`);
+function processDeposit(id, action) {
+    socket.emit('admin_process_deposit', { id, action });
 }
 
-function adminResetStats() {
-    localStorage.clear();
-    location.reload();
+function adjustUserWallet() {
+    const username = document.getElementById('targetUser').value;
+    const amount = document.getElementById('targetAmount').value;
+
+    if (!username || !amount) return alert("Username aur Amount dono bharein!");
+
+    socket.emit('admin_modify_wallet', { username, amount });
+    alert(`₹${amount} wallet update sent for ${username}!`);
+    document.getElementById('targetUser').value = '';
+    document.getElementById('targetAmount').value = '';
 }
 
-function logAdminEvent(msg) {
-    const logs = document.getElementById('adminLogs');
-    const entry = document.createElement('div');
-    entry.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
-    logs.prepend(entry);
-}
+function renderAdminPanel(state) {
+    document.getElementById('adminUsersCount').innerText = state.totalUsersCount;
+    document.getElementById('adminHouseProfit').innerText = `₹${state.houseProfit}`;
+    document.getElementById('adminTotalVolume').innerText = `₹${state.totalVolume}`;
+    document.getElementById('adminCurrentMode').innerText = state.forceMode;
 
-function updateLedgerUI() {
-    document.getElementById('adminHouseProfit').innerText = `₹${houseProfit}`;
-    document.getElementById('adminTotalVolume').innerText = `₹${totalVolume}`;
-}
+    const depList = document.getElementById('adminDepositList');
+    depList.innerHTML = '';
 
-function setBetAmount(val) {
-    const input = document.getElementById('betAmount');
-    if (val === 'max') {
-        input.value = userBalance;
+    if (state.deposits.length === 0) {
+        depList.innerHTML = `<div style="font-size: 0.75rem; color:#94a3b8;">Koi pending deposit nahi hai.</div>`;
     } else {
-        input.value = (Number(input.value) || 0) + val;
+        state.deposits.forEach(d => {
+            const item = document.createElement('div');
+            item.className = 'admin-dep-item';
+            item.innerHTML = `
+                <span>User: <b>${d.uid}</b> | ₹${d.amount} | UTR: ${d.txnId}</span>
+                <div>
+                    <button onclick="processDeposit(${d.id}, 'APPROVED')" class="btn-approve">Approve</button>
+                    <button onclick="processDeposit(${d.id}, 'REJECTED')" class="btn-reject">Reject</button>
+                </div>
+            `;
+            depList.appendChild(item);
+        });
     }
-    playSound('click');
 }
 
-function runCoinFlip(roundId) {
-    const coin = document.getElementById('coin');
-    const resultDisplay = document.getElementById('resultText');
-    const statusMsg = document.getElementById('statusMessage');
-
-    resultDisplay.innerText = "🌀 Flipping...";
-    playSound('spin');
-
-    let outcome;
-    if (forceOutcomeMode === 'AUTO') {
-        outcome = (roundId % 2 === 0) ? 'HEADS' : 'TAILS';
-    } else {
-        outcome = forceOutcomeMode;
-    }
-
-    currentRotation += 1800;
-    if (outcome === 'TAILS') currentRotation += 180;
-    coin.style.transform = `rotateY(${currentRotation}deg)`;
-
-    setTimeout(() => {
-        resultDisplay.innerText = `Result: ${outcome}`;
-
-        if (currentBet) {
-            totalVolume += currentBet.amount;
-            if (currentBet.choice === outcome) {
-                streak++;
-                const winAmount = currentBet.amount * 2;
-                userBalance += winAmount;
-                houseProfit -= currentBet.amount;
-                playSound('win');
-                if (typeof confetti === 'function') confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
-                showModal("🎉 BIG WIN!", `+₹${winAmount}`, "#4ade80");
-                statusMsg.innerText = `Won ₹${winAmount}!`;
-                statusMsg.style.color = '#4ade80';
-            } else {
-                streak = 0;
-                houseProfit += currentBet.amount;
-                playSound('lose');
-                showModal("❌ YOU LOST", `-₹${currentBet.amount}`, "#ef4444");
-                statusMsg.innerText = `Lost ₹${currentBet.amount}`;
-                statusMsg.style.color = '#ef4444';
-            }
-            
-            currentBet = null;
-            document.getElementById('balance').innerText = userBalance;
-            document.getElementById('streak').innerText = streak;
-            updateLedgerUI();
-            saveData();
-        }
-
-        addHistoryChip(outcome);
-    }, 1300);
-}
-
-function showModal(title, desc, color) {
-    const modal = document.getElementById('winModal');
-    document.getElementById('modalTitle').innerText = title;
-    document.getElementById('modalTitle').style.color = color;
-    document.getElementById('modalDesc').innerText = desc;
-    modal.style.display = "flex";
-    setTimeout(() => { modal.style.display = "none"; }, 2000);
-}
-
-function placeBet(choice) {
-    const amountInput = document.getElementById('betAmount');
-    const statusMsg = document.getElementById('statusMessage');
-    const amount = Number(amountInput.value);
-
-    if (currentBet) {
-        statusMsg.style.color = '#f59e0b';
-        statusMsg.innerText = 'Bet already active for this round!';
-        return;
-    }
-
-    if (!amount || amount < 10) {
-        statusMsg.style.color = '#ef4444';
-        statusMsg.innerText = 'Minimum bet ₹10';
-        return;
-    }
-
-    if (amount > userBalance) {
-        statusMsg.style.color = '#ef4444';
-        statusMsg.innerText = 'Low Balance!';
-        return;
-    }
-
-    userBalance -= amount;
-    document.getElementById('balance').innerText = userBalance;
-    currentBet = { choice, amount };
-    saveData();
-
-    statusMsg.style.color = '#38bdf8';
-    statusMsg.innerText = `₹${amount} bet placed on ${choice}!`;
-    amountInput.value = '';
-    playSound('click');
-}
-
-function addHistoryChip(outcome) {
-    historyData.unshift(outcome);
-    if (historyData.length > 6) historyData.pop();
-    saveData();
-    renderHistoryUI();
-}
-
-function renderHistoryUI() {
-    const historyContainer = document.getElementById('historyChips');
-    historyContainer.innerHTML = '';
-    historyData.forEach(item => {
-        const chip = document.createElement('span');
+function renderHistoryUI(history) {
+    const container = document.getElementById('historyChips');
+    container.innerHTML = '';
+    history.forEach(item => {
+        const chip = document.createElement('div');
         chip.className = `chip ${item.toLowerCase()}`;
         chip.innerText = item === 'HEADS' ? 'H' : 'T';
-        historyContainer.appendChild(chip);
+        container.appendChild(chip);
     });
 }
