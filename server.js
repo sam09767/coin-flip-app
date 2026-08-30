@@ -580,5 +580,5 @@ io.on('connection', async (socket) => {
 server.listen(PORT, () => {
     console.log("🚀 Starting Coin Flip Casino Server...");
     console.log(`🚀 Casino Engine Running on Port ${PORT}`);
-    console.log("🌐 Server is ready with Direct Login!");
+    console.log("🌐 Server is ready ,Login!");
 });
