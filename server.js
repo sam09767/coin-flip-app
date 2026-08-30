@@ -3,7 +3,6 @@ const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
 const mongoose = require('mongoose');
-const nodemailer = require('nodemailer');
 
 const app = express();
 app.use(cors());
@@ -21,40 +20,7 @@ const io = new Server(server, {
 
 const PORT = process.env.PORT || 3000;
 const ADMIN_SECRET = process.env.ADMIN_PASSWORD || "ADMIN@9988";
-// ✅ Fix: Handle both MONGO_URI and MONGODB_URI environment variables
 const MONGO_URI = process.env.MONGODB_URI || process.env.MONGO_URI;
-
-/* =========================================================
-   GMAIL SMTP CONFIGURATION (FIXED FOR RENDER TIMEOUT)
-========================================================= */
-console.log("📧 Starting Gmail SMTP system...");
-
-const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 465,           // ✅ Fix: Port 465 avoids Render network blocking
-    secure: true,        // ✅ Fix: Required for port 465
-    auth: {
-        user: 'sameerkhanl045632@gmail.com',
-        pass: 'rtkrdhizhcwbsxnl'
-    }
-});
-
-console.log("📧 Checking Gmail SMTP connection...");
-
-transporter.verify()
-    .then(() => {
-        console.log("✅ Gmail SMTP Connected Successfully!");
-        console.log("📨 Gmail OTP System Ready!");
-    })
-    .catch((error) => {
-        console.error("❌ Gmail Transporter Connection Error:");
-        console.error(error);
-    });
-
-/* =========================================================
-   TEMPORARY OTP STORAGE
-========================================================= */
-const otpStore = new Map();
 
 /* =========================================================
    MONGODB CONNECTION
@@ -73,7 +39,7 @@ if (!MONGO_URI) {
 const UserSchema = new mongoose.Schema({
     username: { type: String, required: true, unique: true },
     password: { type: String, required: true },
-    balance: { type: Number, default: 0 },
+    balance: { type: Number, default: 0 }, // ZERO BONUS AS REQUESTED
     streak: { type: Number, default: 0 }
 });
 
@@ -164,7 +130,7 @@ setInterval(async () => {
 }, 100);
 
 /* =========================================================
-   EXECUTE GLOBAL SPIN (FIXED FOR MONGODB VERSION ERROR)
+   EXECUTE GLOBAL SPIN (ATOMIC UPDATE FIX)
 ========================================================= */
 async function executeGlobalSpin(roundId) {
     try {
@@ -221,7 +187,6 @@ async function executeGlobalSpin(roundId) {
             }
         }
 
-        // ✅ Fix: Atomic update prevents VersionError crash
         await SystemState.updateOne(
             { key: 'global_config' },
             {
@@ -242,7 +207,6 @@ async function executeGlobalSpin(roundId) {
         activeBets.clear();
         recentBetsFeed = [];
 
-        // Nayi history fetch karke clients ko bhejna
         const updatedConfig = await getSystemConfig();
 
         io.emit('round_result', {
@@ -308,99 +272,39 @@ io.on('connection', async (socket) => {
     }
 
     /* =============================================
-       SEND OTP
+       DIRECT LOGIN / SIGNUP (NO OTP)
     ============================================= */
-    socket.on('send_otp', async ({ email }, callback) => {
+    socket.on('user_login', async ({ username, password, isSignUp }, callback) => {
         if (typeof callback !== 'function') return;
 
-        if (!email || !email.includes('@')) {
-            return callback({ success: false, msg: "Sahi Email Address enter karein!" });
+        if (!username || !password) {
+            return callback({ success: false, msg: "Username aur Password dono zaroori hain!" });
         }
 
-        const cleanEmail = String(email).trim().toLowerCase();
-        const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
-        const expiresAt = Date.now() + (5 * 60 * 1000);
-
-        otpStore.set(cleanEmail, { otp: generatedOtp, expiresAt: expiresAt });
-        console.log(`📨 OTP sending to: ${cleanEmail}`);
-
-        const mailOptions = {
-            from: '"Coin Flip Live Casino" <sameerkhanl045632@gmail.com>',
-            to: cleanEmail,
-            subject: 'Your Security OTP Code - Coin Flip Casino',
-            html: `
-            <div style="font-family:Arial,sans-serif; padding:20px; background:#0f172a; color:#ffffff; border-radius:10px; max-width:500px; margin:auto;">
-                <h2 style="color:#facc15; text-align:center;">COIN FLIP CASINO</h2>
-                <p style="font-size:16px;">Aapka Login/Signup OTP verification code hai:</p>
-                <div style="background:#1e293b; padding:15px; text-align:center; border-radius:8px; font-size:32px; font-weight:bold; color:#22c55e; letter-spacing:6px; margin:20px 0;">
-                    ${generatedOtp}
-                </div>
-                <p style="font-size:12px; color:#94a3b8; text-align:center;">Ye OTP 5 minute ke liye valid hai. Kisi ke sath share na karein!</p>
-            </div>`
-        };
-
-        try {
-            await transporter.sendMail(mailOptions);
-            console.log(`✅ OTP sent successfully to ${cleanEmail}`);
-            return callback({ success: true, msg: "OTP aapke Gmail par bhej diya gaya hai!" });
-        } catch (err) {
-            console.error("❌ Email Send Error:", err);
-            otpStore.delete(cleanEmail);
-            return callback({ success: false, msg: "OTP bhejne me dikkat aayi. Please thodi der baad try karein." });
-        }
-    });
-
-    /* =============================================
-       VERIFY OTP + LOGIN / SIGNUP
-    ============================================= */
-    socket.on('user_login', async ({ username, password, otp, isSignUp }, callback) => {
-        if (typeof callback !== 'function') return;
-
-        if (!username || !password || !otp) {
-            return callback({ success: false, msg: "Email, Password aur OTP teenon zaroori hain!" });
-        }
-
-        const cleanEmail = String(username).trim().toLowerCase();
+        const cleanUsername = String(username).trim().toLowerCase();
         const cleanPassword = String(password).trim();
-        const cleanOtp = String(otp).trim();
-        const storedOtpData = otpStore.get(cleanEmail);
-
-        if (!storedOtpData) {
-            return callback({ success: false, msg: "Pehle Send OTP button se OTP mangwaye!" });
-        }
-
-        if (Date.now() > storedOtpData.expiresAt) {
-            otpStore.delete(cleanEmail);
-            return callback({ success: false, msg: "OTP expire ho chuka hai! Phir se OTP bhejein." });
-        }
-
-        if (storedOtpData.otp !== cleanOtp) {
-            return callback({ success: false, msg: "Galat OTP enter kiya hai!" });
-        }
-
-        otpStore.delete(cleanEmail);
 
         try {
-            let user = await User.findOne({ username: cleanEmail });
+            let user = await User.findOne({ username: cleanUsername });
 
             if (isSignUp) {
                 if (user) {
-                    return callback({ success: false, msg: "Is Email se pehle se account bana hua hai! Directly Login karein." });
+                    return callback({ success: false, msg: "Is Username se pehle se account bana hua hai! Directly Login karein." });
                 }
                 user = await User.create({
-                    username: cleanEmail,
+                    username: cleanUsername,
                     password: cleanPassword,
-                    balance: 0,
+                    balance: 0, // NEW USER BALANCE SET TO 0
                     streak: 0
                 });
             } else {
                 if (!user || user.password !== cleanPassword) {
-                    return callback({ success: false, msg: "Galat Email ya Password!" });
+                    return callback({ success: false, msg: "Galat Username ya Password!" });
                 }
             }
 
-            socket.join(`user_${cleanEmail}`);
-            onlineUsers.set(socket.id, cleanEmail);
+            socket.join(`user_${cleanUsername}`);
+            onlineUsers.set(socket.id, cleanUsername);
 
             const config = await getSystemConfig();
             callback({ success: true, userData: user, adminUpi: config.adminUpi });
@@ -664,5 +568,5 @@ io.on('connection', async (socket) => {
 server.listen(PORT, () => {
     console.log("🚀 Starting Coin Flip Casino Server...");
     console.log(`🚀 Casino Engine Running on Port ${PORT}`);
-    console.log("🌐 Server is ready!");
+    console.log("🌐 Server is ready with Direct Login!");
 });
