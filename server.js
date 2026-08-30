@@ -5,17 +5,29 @@ const cors = require('cors');
 const mongoose = require('mongoose');
 
 const app = express();
-app.use(cors());
+app.set('trust proxy', 1); // FIX 1: Render aur Mobile Networks (Jio) ke proxies ko handle karne ke liye
+
+app.use(cors({
+    origin: "*",
+    methods: ["GET", "POST"],
+    credentials: true
+}));
 app.use(express.json());
 app.use(express.static('public'));
 
 const server = http.createServer(app);
 
+// FIX 2: Jio Strict Firewall & Timeout Bypass Settings
 const io = new Server(server, {
     cors: {
         origin: "*",
-        methods: ["GET", "POST"]
-    }
+        methods: ["GET", "POST"],
+        credentials: true
+    },
+    pingTimeout: 60000,      // Jio network idle connections ko jaldi drop karta hai, isliye 60 sec kiya
+    pingInterval: 25000,     // Har 25 sec me heartbeat bhejega taaki connection zinda rahe
+    transports: ['polling', 'websocket'], // Polling bypasses strict WebSocket blocks initially
+    allowEIO3: true          // Purane mobile browsers ke liye fallback
 });
 
 const PORT = process.env.PORT || 3000;
@@ -39,7 +51,7 @@ if (!MONGO_URI) {
 const UserSchema = new mongoose.Schema({
     username: { type: String, required: true, unique: true },
     password: { type: String, required: true },
-    balance: { type: Number, default: 0 }, // ZERO BONUS AS REQUESTED
+    balance: { type: Number, default: 0 }, 
     streak: { type: Number, default: 0 }
 });
 
@@ -294,7 +306,7 @@ io.on('connection', async (socket) => {
                 user = await User.create({
                     username: cleanUsername,
                     password: cleanPassword,
-                    balance: 0, // NEW USER BALANCE SET TO 0
+                    balance: 0, 
                     streak: 0
                 });
             } else {
