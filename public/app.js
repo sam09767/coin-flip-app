@@ -1,10 +1,13 @@
 // Automatic domain detection (Render & local host handling)
 const socket = io({
-    transports: ['polling', 'websocket'], // Polling first for Render compatibility
+    transports: ['polling', 'websocket'],
+    upgrade: true,
+    rememberUpgrade: false,
     timeout: 20000,
     reconnection: true,
-    reconnectionAttempts: 10,
-    reconnectionDelay: 1000
+    reconnectionAttempts: Infinity,
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 5000
 });
 
 let currentUser = null;
