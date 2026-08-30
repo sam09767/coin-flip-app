@@ -292,44 +292,6 @@
     </div>
 </div>
 
-<script>
-    // Ye script direct login ko handle karegi bina app.js me change kiye
-    function handleDirectAuth(isSignUp) {
-        const username = document.getElementById('loginUsername').value;
-        const password = document.getElementById('loginPassword').value;
-        const statusMsg = document.getElementById('authMsg');
-
-        if (!username || !password) {
-            statusMsg.style.color = "red";
-            statusMsg.innerText = "Username aur Password dono daalein!";
-            return;
-        }
-
-        statusMsg.style.color = "yellow";
-        statusMsg.innerText = "Processing...";
-
-        if(typeof socket !== 'undefined') {
-            socket.emit('user_login', { 
-                username: username, 
-                password: password, 
-                isSignUp: isSignUp 
-            }, (response) => {
-                if (response.success) {
-                    statusMsg.style.color = "lime";
-                    statusMsg.innerText = "Success! Logging in...";
-                    document.getElementById('authModal').style.display = 'none';
-                    // Agar app.js me currentUsername set karna zaroori hai
-                    if(typeof window.currentUsername !== 'undefined') {
-                        window.currentUsername = username;
-                    }
-                } else {
-                    statusMsg.style.color = "red";
-                    statusMsg.innerText = response.msg;
-                }
-            });
-        }
-    }
-</script>
 <script src="app.js"></script>
 </body>
 </html>
