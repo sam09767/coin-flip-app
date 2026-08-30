@@ -9,6 +9,17 @@ const socket = io({
     reconnectionDelay: 1000,
     reconnectionDelayMax: 5000
 });
+socket.on('connect', () => {
+    console.log('SOCKET CONNECTED:', socket.id);
+});
+
+socket.on('connect_error', (error) => {
+    console.log('SOCKET CONNECT ERROR:', error.message);
+});
+
+socket.on('disconnect', (reason) => {
+    console.log('SOCKET DISCONNECTED:', reason);
+});
 
 let currentUser = null;
 let currentRotation = 0;
