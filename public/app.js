@@ -84,7 +84,7 @@ socket.on('connect', () => {
     console.log("Connected to Render Server! ID:", socket.id);
     const msgBox = document.getElementById('authMsg');
     if (msgBox) {
-        msgBox.innerText = "Server Connected! Ab OTP bhej sakte hain.";
+        msgBox.innerText = "Server Connected! Direct login karein."; // CHANGED
         msgBox.style.color = "#22c55e";
     }
 });
@@ -98,76 +98,16 @@ socket.on('connect_error', (err) => {
     }
 });
 
-// Send OTP Request Function (Exposed Globally)
-window.requestOtp = function() {
-    console.log("requestOtp triggered!");
+// DIRECT LOGIN/SIGNUP FUNCTION (No OTP)
+window.handleDirectAuth = function(isSignUp) {
     initAudio();
-    const emailEl = document.getElementById('authEmail');
-    const msgBox = document.getElementById('authMsg');
-    const sendBtn = document.getElementById('sendOtpBtn');
-
-    if (!emailEl) {
-        console.error("Element #authEmail not found!");
-        return;
-    }
-    const email = emailEl.value.trim();
-
-    if (!email || !email.includes('@')) {
-        if (msgBox) {
-            msgBox.innerText = "Sahi Gmail address enter karein!";
-            msgBox.style.color = "#ef4444";
-        }
-        return;
-    }
-
-    if (!socket.connected) {
-        if (msgBox) {
-            msgBox.innerText = "Connecting to server... Retrying...";
-            msgBox.style.color = "#facc15";
-        }
-        socket.connect();
-        setTimeout(() => window.requestOtp(), 2000);
-        return;
-    }
-
-    if (sendBtn) {
-        sendBtn.disabled = true;
-        sendBtn.innerText = "Sending...";
-    }
-    if (msgBox) {
-        msgBox.innerText = "OTP bhej rahe hain...";
-        msgBox.style.color = "#facc15";
-    }
-
-    // Emit event with timeout safety
-    socket.emit('send_otp', { email }, (res) => {
-        console.log("OTP Response received:", res);
-        if (sendBtn) {
-            sendBtn.disabled = false;
-            sendBtn.innerText = "Send OTP";
-        }
-        if (msgBox) {
-            if (res) {
-                msgBox.innerText = res.msg;
-                msgBox.style.color = res.success ? "#22c55e" : "#ef4444";
-            } else {
-                msgBox.innerText = "OTP Bhejne me error aaya!";
-                msgBox.style.color = "#ef4444";
-            }
-        }
-    });
-};
-
-window.submitAuth = function(isSignUp) {
-    initAudio();
-    const email = document.getElementById('authEmail').value.trim();
-    const otp = document.getElementById('authOtp').value.trim();
-    const password = document.getElementById('authPassword').value.trim();
+    const username = document.getElementById('loginUsername').value.trim();
+    const password = document.getElementById('loginPassword').value.trim();
     const msgBox = document.getElementById('authMsg');
 
-    if (!email || !otp || !password) {
+    if (!username || !password) {
         if (msgBox) {
-            msgBox.innerText = "Email, OTP aur Password sabhi zaroori hain!";
+            msgBox.innerText = "Username aur Password dono zaroori hain!";
             msgBox.style.color = "#ef4444";
         }
         return;
@@ -186,13 +126,13 @@ window.submitAuth = function(isSignUp) {
         msgBox.style.color = "#facc15";
     }
 
-    socket.emit('user_login', { username: email, password, otp, isSignUp }, (res) => {
+    socket.emit('user_login', { username, password, isSignUp }, (res) => {
         if (res && res.success) {
             if (msgBox) {
                 msgBox.innerText = "Success!";
                 msgBox.style.color = "#22c55e";
             }
-            onLoginSuccess(res.userData, res.adminUpi, email, password);
+            onLoginSuccess(res.userData, res.adminUpi, username, password);
         } else {
             if (msgBox) {
                 msgBox.innerText = (res && res.msg) ? res.msg : "Login Error!";
